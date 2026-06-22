@@ -42,6 +42,31 @@ class MessageRepository(IMessageRepository):
         self._session.add(model)
         await self._session.flush()
 
+    async def get_recent(
+        self, companion_id: UUID, limit: int = 30, before_id: UUID | None = None
+    ) -> list[Message]:
+        query = select(MessageModel).where(MessageModel.companion_id == companion_id)
+        if before_id:
+            subq = (
+                select(MessageModel.created_at)
+                .where(MessageModel.id == before_id)
+                .scalar_subquery()
+            )
+            query = query.where(MessageModel.created_at < subq)
+        query = query.order_by(MessageModel.created_at.desc()).limit(limit)
+        result = await self._session.execute(query)
+        return list(reversed([
+            Message(
+                id=m.id,
+                companion_id=m.companion_id,
+                role=MessageRole(m.role),
+                content=m.content,
+                audio_url=m.audio_url,
+                created_at=m.created_at,
+            )
+            for m in result.scalars()
+        ]))
+
     async def get_by_companion_since(self, companion_id: UUID, since: date) -> list[Message]:
         since_dt = datetime.combine(since, datetime.min.time())
         result = await self._session.execute(

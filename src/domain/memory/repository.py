@@ -14,6 +14,11 @@ class IMessageRepository(ABC):
         self, companion_id: UUID, since: date
     ) -> list[Message]: ...
 
+    @abstractmethod
+    async def get_recent(
+        self, companion_id: UUID, limit: int = 30, before_id: UUID | None = None
+    ) -> list[Message]: ...
+
 
 class IDailySummaryRepository(ABC):
     @abstractmethod

@@ -1,8 +1,30 @@
 import { apiClient } from '@/shared/api/client';
 
+function mapStepPayload(step: string, text: string): Record<string, unknown> {
+  switch (step) {
+    case 'intro':
+      return { step, basic_info: { preferred_name: text } };
+    case 'life_context':
+      return { step, life_context: { occupation: text } };
+    case 'positive_moments':
+      return { step, positive_moments: { sources_of_energy: [text] } };
+    case 'struggles':
+      return { step, struggles: { coping_mechanisms: [text] } };
+    case 'companion_preferences':
+      return {
+        step,
+        companion_preferences: {
+          directiveness: /совет|подсказ|advice/i.test(text) ? 'advisor' : 'listener',
+        },
+      };
+    default:
+      return { step };
+  }
+}
+
 export const onboardingApi = {
-  saveStep: (data: Record<string, unknown>) =>
-    apiClient.post('/onboarding/step', data),
+  saveStep: (step: string, text?: string) =>
+    apiClient.post('/onboarding/step', text ? mapStepPayload(step, text) : { step }),
 
   voiceStep: (step: string, audioUri: string) => {
     const form = new FormData();

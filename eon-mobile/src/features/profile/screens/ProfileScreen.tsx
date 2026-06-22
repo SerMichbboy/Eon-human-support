@@ -1,6 +1,7 @@
+import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppStackParams } from '@/core/navigation/AppNavigator';
@@ -27,6 +28,10 @@ export function ProfileScreen({ navigation }: Props) {
     queryFn: () => companionApi.get().then((r) => r.data),
   });
 
+  useFocusEffect(useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['profile'] });
+  }, [queryClient]));
+
   const renameMutation = useMutation({
     mutationFn: (name: string) => companionApi.rename(name),
     onSuccess: () => {
@@ -49,11 +54,7 @@ export function ProfileScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.root} edges={['bottom']}>
       <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={styles.name}>{name}</Text>
-
-        {/* Companion rename */}
         <View style={styles.companionCard}>
-          <Text style={styles.sectionTitle}>Имя компаньона</Text>
           {editingName ? (
             <View style={styles.renameRow}>
               <TextInput
@@ -62,28 +63,31 @@ export function ProfileScreen({ navigation }: Props) {
                 onChangeText={setBotName}
                 placeholder="Введи имя..."
                 placeholderTextColor={colors.textMuted}
-                autoFocus
+                keyboardAppearance="dark"
+                autoCorrect={false}
+                selectionColor={colors.accent}
               />
-              <Pressable
-                style={styles.saveBtn}
-                onPress={() => botName.trim() && renameMutation.mutate(botName.trim())}
-              >
-                <Text style={styles.saveBtnText}>
-                  {renameMutation.isPending ? '...' : 'Сохранить'}
-                </Text>
-              </Pressable>
-              <Pressable onPress={() => setEditingName(false)}>
-                <Text style={styles.cancelText}>Отмена</Text>
-              </Pressable>
+              <View style={styles.renameActions}>
+                <Pressable
+                  style={styles.saveBtn}
+                  onPress={() => botName.trim() && renameMutation.mutate(botName.trim())}
+                >
+                  <Text style={styles.saveBtnText}>
+                    {renameMutation.isPending ? '...' : 'Сохранить'}
+                  </Text>
+                </Pressable>
+                <Pressable onPress={() => setEditingName(false)}>
+                  <Text style={styles.cancelText}>Отмена</Text>
+                </Pressable>
+              </View>
             </View>
           ) : (
-            <Pressable
-              style={styles.renameRow}
-              onPress={() => { setBotName(companion?.name ?? 'Eon'); setEditingName(true); }}
-            >
+            <View style={styles.renameRow}>
               <Text style={styles.companionName}>{companion?.name ?? 'Eon'}</Text>
-              <Text style={styles.editHint}>Нажми чтобы изменить</Text>
-            </Pressable>
+              <Pressable onPress={() => { setBotName(companion?.name ?? 'Eon'); setEditingName(true); }}>
+                <Text style={styles.editLink}>Изменить</Text>
+              </Pressable>
+            </View>
           )}
         </View>
 
@@ -102,20 +106,48 @@ export function ProfileScreen({ navigation }: Props) {
           </View>
         )}
 
-        {data?.basic_info?.age ? (
-          <Text style={styles.detail}>{data.basic_info.age} лет</Text>
-        ) : null}
-        {data?.basic_info?.location ? (
-          <Text style={styles.detail}>{data.basic_info.location}</Text>
-        ) : null}
-        {data?.life_context?.occupation ? (
-          <Section title="Занятие" value={data.life_context.occupation} />
-        ) : null}
-        {data?.positive_moments?.sources_of_energy?.length ? (
-          <Section title="Что даёт силы" value={data.positive_moments.sources_of_energy.join(', ')} />
-        ) : null}
-        {data?.struggles?.coping_mechanisms?.length ? (
-          <Section title="Как справляюсь" value={data.struggles.coping_mechanisms.join(', ')} />
+        {hasProfile ? (
+          <View style={styles.profileCard}>
+            {data.basic_info.preferred_name ? (
+              <ProfileRow label="Имя" value={data.basic_info.preferred_name} first />
+            ) : null}
+            {data.basic_info.age ? (
+              <ProfileRow label="Возраст" value={`${data.basic_info.age} лет`} />
+            ) : null}
+            {data.basic_info.location ? (
+              <ProfileRow label="Город" value={data.basic_info.location} />
+            ) : null}
+            {data.life_context.occupation ? (
+              <ProfileRow label="О себе" value={data.life_context.occupation} multiline />
+            ) : null}
+            {data.life_context.family_status ? (
+              <ProfileRow label="Семья" value={data.life_context.family_status} multiline />
+            ) : null}
+            {data.life_context.close_people?.length ? (
+              <ProfileRow label="Близкие" value={data.life_context.close_people.join(', ')} multiline />
+            ) : null}
+            {data.life_context.values?.length ? (
+              <ProfileRow label="Ценности" value={data.life_context.values.join(', ')} multiline />
+            ) : null}
+            {data.positive_moments.sources_of_energy?.length ? (
+              <ProfileRow label="Что даёт силы" value={data.positive_moments.sources_of_energy.join('\n')} multiline />
+            ) : null}
+            {data.positive_moments.dreams?.length ? (
+              <ProfileRow label="Мечты" value={data.positive_moments.dreams.join(', ')} multiline />
+            ) : null}
+            {data.struggles.coping_mechanisms?.length ? (
+              <ProfileRow label="Как справляюсь" value={data.struggles.coping_mechanisms.join('\n')} multiline />
+            ) : null}
+            {data.struggles.anxiety_topics?.length ? (
+              <ProfileRow label="Что беспокоит" value={data.struggles.anxiety_topics.join(', ')} multiline />
+            ) : null}
+            {data.companion_preferences?.directiveness ? (
+              <ProfileRow
+                label="Стиль общения"
+                value={data.companion_preferences.directiveness === 'advisor' ? 'Даёт советы когда прошу' : 'Просто слушает'}
+              />
+            ) : null}
+          </View>
         ) : null}
 
         {hasProfile && (
@@ -162,11 +194,11 @@ export function ProfileScreen({ navigation }: Props) {
   );
 }
 
-function Section({ title, value }: { title: string; value: string }) {
+function ProfileRow({ label, value, multiline, first }: { label: string; value: string; multiline?: boolean; first?: boolean }) {
   return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      <Text style={styles.sectionValue}>{value}</Text>
+    <View style={[styles.profileRow, first && { borderTopWidth: 0 }]}>
+      <Text style={styles.profileRowLabel}>{label}</Text>
+      <Text style={[styles.profileRowValue, multiline && styles.profileRowValueMultiline]}>{value}</Text>
     </View>
   );
 }
@@ -176,10 +208,39 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg },
   scroll: { padding: spacing.xl, gap: spacing.lg },
   name: { ...typography.h1 },
+  profileCard: {
+    backgroundColor: colors.bgCard,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  profileRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    gap: spacing.md,
+  },
+  profileRowLabel: {
+    ...typography.bodySmall,
+    color: colors.textMuted,
+    width: 110,
+    flexShrink: 0,
+    paddingTop: 1,
+  },
+  profileRowValue: {
+    ...typography.body,
+    flex: 1,
+    color: colors.textPrimary,
+  },
+  profileRowValueMultiline: {
+    lineHeight: 22,
+  },
+  detailRow: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
   detail: { ...typography.body, color: colors.textSecondary },
-  section: { gap: spacing.xs },
-  sectionTitle: { ...typography.bodySmall, color: colors.textMuted },
-  sectionValue: { ...typography.body },
   emptyCard: {
     backgroundColor: colors.bgCard,
     borderRadius: 12,
@@ -203,13 +264,14 @@ const styles = StyleSheet.create({
   logoutBtn: { marginTop: spacing.sm, alignItems: 'center', padding: spacing.md },
   logoutText: { ...typography.body, color: colors.error },
   companionCard: { backgroundColor: colors.bgCard, borderRadius: 12, padding: spacing.md, gap: spacing.sm, borderWidth: 1, borderColor: colors.border },
-  companionName: { ...typography.h2, color: colors.accent },
-  editHint: { ...typography.caption, color: colors.textMuted },
-  renameRow: { gap: spacing.sm },
-  renameInput: { backgroundColor: colors.bgInput, borderWidth: 1, borderColor: colors.accent, borderRadius: 10, padding: spacing.sm, color: colors.textPrimary, ...typography.body },
-  saveBtn: { backgroundColor: colors.accent, padding: spacing.sm, borderRadius: 10, alignItems: 'center' },
-  saveBtnText: { color: '#fff', fontWeight: '600' },
-  cancelText: { color: colors.textMuted, textAlign: 'center', ...typography.bodySmall },
+  companionName: { fontSize: 20, fontWeight: '600', color: colors.textPrimary },
+  editLink: { ...typography.bodySmall, color: colors.accent },
+  renameRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  renameActions: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center', marginTop: spacing.sm },
+  renameInput: { backgroundColor: colors.bgInput, borderWidth: 1, borderColor: colors.accent, borderRadius: 10, padding: spacing.sm, fontSize: 15, color: colors.textPrimary },
+  saveBtn: { backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: 10, alignItems: 'center' },
+  saveBtnText: { color: '#fff', fontWeight: '600', fontSize: 14 },
+  cancelText: { color: colors.textMuted, ...typography.bodySmall },
   aboutCard: {
     marginTop: spacing.sm,
     paddingTop: spacing.xl,

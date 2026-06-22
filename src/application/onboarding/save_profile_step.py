@@ -79,40 +79,39 @@ class SaveProfileStep:
         await self._profiles.save(profile)
 
 
+def _pick(patch: dict, key: str, fallback):
+    """Use patch value if key is present and not None, else fallback."""
+    return patch[key] if key in patch and patch[key] is not None else fallback
+
+
 def _merge_basic_info(existing: BasicInfo, patch: dict) -> BasicInfo:
     return BasicInfo(
-        preferred_name=patch.get("preferred_name") or existing.preferred_name,
-        age=patch.get("age") or existing.age,
-        location=patch.get("location") or existing.location,
+        preferred_name=_pick(patch, "preferred_name", existing.preferred_name),
+        age=_pick(patch, "age", existing.age),
+        location=_pick(patch, "location", existing.location),
     )
 
 
 def _merge_life_context(existing: LifeContext, patch: dict) -> LifeContext:
     return LifeContext(
-        occupation=patch.get("occupation") or existing.occupation,
-        family_status=patch.get("family_status") or existing.family_status,
-        close_people=list({*existing.close_people, *patch.get("close_people", [])}),
-        values=list({*existing.values, *patch.get("values", [])}),
+        occupation=_pick(patch, "occupation", existing.occupation),
+        family_status=_pick(patch, "family_status", existing.family_status),
+        close_people=_pick(patch, "close_people", existing.close_people),
+        values=_pick(patch, "values", existing.values),
     )
 
 
 def _merge_positive(existing: PositiveMoments, patch: dict) -> PositiveMoments:
     return PositiveMoments(
-        joyful_memories=list({*existing.joyful_memories, *patch.get("joyful_memories", [])}),
-        sources_of_energy=list(
-            {*existing.sources_of_energy, *patch.get("sources_of_energy", [])}
-        ),
-        dreams=list({*existing.dreams, *patch.get("dreams", [])}),
+        joyful_memories=_pick(patch, "joyful_memories", existing.joyful_memories),
+        sources_of_energy=_pick(patch, "sources_of_energy", existing.sources_of_energy),
+        dreams=_pick(patch, "dreams", existing.dreams),
     )
 
 
 def _merge_struggles(existing: Struggles, patch: dict) -> Struggles:
     return Struggles(
-        anxiety_topics=list({*existing.anxiety_topics, *patch.get("anxiety_topics", [])}),
-        difficult_periods=list(
-            {*existing.difficult_periods, *patch.get("difficult_periods", [])}
-        ),
-        coping_mechanisms=list(
-            {*existing.coping_mechanisms, *patch.get("coping_mechanisms", [])}
-        ),
+        anxiety_topics=_pick(patch, "anxiety_topics", existing.anxiety_topics),
+        difficult_periods=_pick(patch, "difficult_periods", existing.difficult_periods),
+        coping_mechanisms=_pick(patch, "coping_mechanisms", existing.coping_mechanisms),
     )

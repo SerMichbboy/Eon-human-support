@@ -1,6 +1,6 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useMutation } from '@tanstack/react-query';
-import React, { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import React, { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -11,11 +11,13 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppStackParams } from '@/core/navigation/AppNavigator';
 import { Button } from '@/shared/components/Button';
 import { colors, radius, spacing, typography } from '@/shared/theme';
 import { VoiceButton } from '@/features/voice/components/VoiceButton';
 import { useAudioRecorder } from '@/features/voice/hooks/useAudioRecorder';
+import { profileApi } from '@/features/profile/api';
 import { onboardingApi } from '../api';
 
 type Props = NativeStackScreenProps<AppStackParams, 'Onboarding'>;
@@ -53,40 +55,86 @@ const STEPS = [
   },
 ];
 
+function getInitialAnswers(profile: ReturnType<typeof profileApi.get> extends Promise<infer T> ? T extends { data: infer D } ? D : never : never | null | undefined): Record<string, string> {
+  if (!profile) return {};
+  return {
+    intro: profile.basic_info?.preferred_name ?? '',
+    life_context: profile.life_context?.occupation ?? '',
+    positive_moments: profile.positive_moments?.sources_of_energy?.join('\n') ?? '',
+    struggles: profile.struggles?.coping_mechanisms?.join('\n') ?? '',
+    companion_preferences:
+      profile.companion_preferences?.directiveness === 'advisor'
+        ? 'Давай советы когда прошу'
+        : profile.companion_preferences?.directiveness === 'listener'
+        ? 'Просто слушай'
+        : '',
+  };
+}
+
 export function OnboardingScreen({ navigation }: Props) {
+  const insets = useSafeAreaInsets();
+  const canClose = navigation.canGoBack();
+  const queryClient = useQueryClient();
+
   const [step, setStep] = useState(0);
-  const [text, setText] = useState('');
   const [inputMode, setInputMode] = useState<'voice' | 'text'>('text');
+  const [answers, setAnswers] = useState<Record<string, string>>({});
   const recorder = useAudioRecorder();
+
+  const { data: profile } = useQuery({
+    queryKey: ['profile'],
+    queryFn: () => profileApi.get().then((r) => r.data),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (profile) {
+      setAnswers((prev) => {
+        const defaults = getInitialAnswers(profile as any);
+        // only fill empty slots so user edits aren't overwritten
+        const merged: Record<string, string> = { ...defaults };
+        Object.keys(prev).forEach((k) => { if (prev[k]) merged[k] = prev[k]; });
+        return merged;
+      });
+    }
+  }, [profile]);
+
+  const current = STEPS[step];
+  const text = answers[current.key] ?? '';
+  const setText = (val: string) => setAnswers((a) => ({ ...a, [current.key]: val }));
+
+  const invalidateProfile = () => queryClient.invalidateQueries({ queryKey: ['profile'] });
 
   const textMutation = useMutation({
     mutationFn: ({ answer, stepKey }: { answer: string; stepKey: string }) =>
-      onboardingApi.saveStep({ step: stepKey, text: answer }),
-    onSuccess: () => goNext(),
+      onboardingApi.saveStep(stepKey, answer),
+    onSuccess: () => { invalidateProfile(); goNext(); },
   });
 
   const voiceMutation = useMutation({
     mutationFn: ({ audioUri, stepKey }: { audioUri: string; stepKey: string }) =>
       onboardingApi.voiceStep(stepKey, audioUri),
-    onSuccess: () => goNext(),
+    onSuccess: () => { invalidateProfile(); goNext(); },
   });
 
   const skipMutation = useMutation({
-    mutationFn: (stepKey: string) => onboardingApi.saveStep({ step: stepKey }),
-    onSuccess: () => goNext(),
+    mutationFn: (stepKey: string) => onboardingApi.saveStep(stepKey),
+    onSuccess: () => { invalidateProfile(); goNext(); },
   });
 
   const goNext = () => {
     recorder.reset();
-    setText('');
     if (step < STEPS.length - 1) {
       setStep((s) => s + 1);
     } else {
-      navigation.replace('Chat');
+      if (canClose) {
+        navigation.goBack();
+      } else {
+        navigation.replace('Chat');
+      }
     }
   };
 
-  const current = STEPS[step];
   const isLast = step === STEPS.length - 1;
   const isLoading = textMutation.isPending || voiceMutation.isPending || skipMutation.isPending;
 
@@ -107,9 +155,25 @@ export function OnboardingScreen({ navigation }: Props) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
-        contentContainerStyle={styles.root}
+        contentContainerStyle={[styles.root, { paddingTop: insets.top + spacing.lg }]}
         keyboardShouldPersistTaps="handled"
       >
+        {canClose && (
+          <Pressable
+            style={styles.closeBtn}
+            hitSlop={16}
+            onPress={async () => {
+              if (text.trim()) {
+                await onboardingApi.saveStep(current.key, text.trim());
+                queryClient.invalidateQueries({ queryKey: ['profile'] });
+              }
+              navigation.goBack();
+            }}
+          >
+            <Text style={styles.closeBtnText}>✕</Text>
+          </Pressable>
+        )}
+
         <View style={styles.progress}>
           {STEPS.map((_, i) => (
             <View key={i} style={[styles.dot, i <= step && styles.dotActive]} />
@@ -119,7 +183,6 @@ export function OnboardingScreen({ navigation }: Props) {
         <Text style={styles.question}>{current.question}</Text>
         <Text style={styles.hint}>{current.hint}</Text>
 
-        {/* Mode toggle */}
         <View style={styles.modeRow}>
           <Pressable
             style={[styles.modeBtn, inputMode === 'text' && styles.modeBtnActive]}
@@ -151,7 +214,7 @@ export function OnboardingScreen({ navigation }: Props) {
               returnKeyType="default"
             />
             <Button
-              title="Отправить"
+              title="Сохранить"
               onPress={handleSendText}
               loading={textMutation.isPending}
               disabled={!text.trim()}
@@ -175,7 +238,7 @@ export function OnboardingScreen({ navigation }: Props) {
         )}
 
         <Button
-          title={isLast ? 'Начать общение' : 'Пропустить'}
+          title={isLast ? (canClose ? 'Готово' : 'Начать общение') : 'Пропустить'}
           variant="ghost"
           onPress={() => skipMutation.mutate(current.key)}
           loading={skipMutation.isPending}
@@ -193,6 +256,24 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     justifyContent: 'center',
     gap: spacing.lg,
+  },
+  closeBtn: {
+    position: 'absolute',
+    top: spacing.xl + spacing.lg,
+    right: spacing.xl,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.bgCard,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeBtnText: {
+    fontSize: 15,
+    color: colors.textSecondary,
+    lineHeight: 18,
   },
   progress: { flexDirection: 'row', gap: spacing.xs, justifyContent: 'center' },
   dot: { width: 8, height: 8, borderRadius: radius.full, backgroundColor: colors.border },

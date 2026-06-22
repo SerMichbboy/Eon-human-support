@@ -13,9 +13,10 @@ export type AppStackParams = {
 
 const Stack = createNativeStackNavigator<AppStackParams>();
 
-export function AppNavigator() {
+export function AppNavigator({ initialRoute }: { initialRoute: keyof AppStackParams }) {
   return (
     <Stack.Navigator
+      initialRouteName={initialRoute}
       screenOptions={{
         headerStyle: { backgroundColor: colors.bgCard },
         headerTintColor: colors.textPrimary,

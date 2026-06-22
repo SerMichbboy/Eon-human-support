@@ -43,6 +43,7 @@ def create_app() -> FastAPI:
 
     from src.presentation.api.auth import router as auth_router
     from src.presentation.api.companion import router as companion_router
+    from src.presentation.api.messages import router as messages_router
     from src.presentation.api.onboarding import router as onboarding_router
     from src.presentation.api.profile import router as profile_router
     from src.presentation.api.voice import router as voice_router
@@ -50,6 +51,7 @@ def create_app() -> FastAPI:
 
     app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(companion_router, prefix="/api/v1/companion", tags=["companion"])
+    app.include_router(messages_router, prefix="/api/v1/messages", tags=["messages"])
     app.include_router(onboarding_router, prefix="/api/v1/onboarding", tags=["onboarding"])
     app.include_router(profile_router, prefix="/api/v1/profile", tags=["profile"])
     app.include_router(voice_router, prefix="/api/v1/voice", tags=["voice"])
