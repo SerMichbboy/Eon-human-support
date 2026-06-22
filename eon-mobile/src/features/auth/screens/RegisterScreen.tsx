@@ -1,0 +1,125 @@
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import React, { useState } from 'react';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  Pressable,
+  View,
+} from 'react-native';
+import { Button } from '@/shared/components/Button';
+import { Input } from '@/shared/components/Input';
+import { colors, spacing, typography } from '@/shared/theme';
+import { AuthStackParams } from '@/core/navigation/AuthNavigator';
+import { useRegisterEmail, useRegisterPhone } from '../hooks/useRegister';
+
+type Props = NativeStackScreenProps<AuthStackParams, 'Register'>;
+
+export function RegisterScreen({ navigation }: Props) {
+  const [mode, setMode] = useState<'email' | 'phone'>('email');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+
+  const registerEmail = useRegisterEmail();
+  const registerPhone = useRegisterPhone();
+
+  const isLoading = registerEmail.isPending || registerPhone.isPending;
+
+  const handleRegister = () => {
+    setPasswordError('');
+    if (password.length < 8) {
+      setPasswordError('Пароль — минимум 8 символов');
+      return;
+    }
+    if (mode === 'email') {
+      registerEmail.mutate({ email, password });
+    } else {
+      registerPhone.mutate({ phone, password });
+    }
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.root}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        <Text style={styles.title}>Создать аккаунт</Text>
+        <Text style={styles.subtitle}>Это займёт меньше минуты</Text>
+
+        <View style={styles.modeRow}>
+          {(['email', 'phone'] as const).map((m) => (
+            <Pressable
+              key={m}
+              style={[styles.modeBtn, mode === m && styles.modeBtnActive]}
+              onPress={() => setMode(m)}
+            >
+              <Text style={[styles.modeBtnText, mode === m && styles.modeBtnTextActive]}>
+                {m === 'email' ? 'Email' : 'Телефон'}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <View style={styles.form}>
+          {mode === 'email' ? (
+            <Input
+              label="Email"
+              placeholder="you@example.com"
+              autoCapitalize="none"
+              keyboardType="email-address"
+              value={email}
+              onChangeText={setEmail}
+            />
+          ) : (
+            <Input
+              label="Телефон"
+              placeholder="+79001234567"
+              keyboardType="phone-pad"
+              value={phone}
+              onChangeText={setPhone}
+            />
+          )}
+          <Input
+            label="Пароль"
+            placeholder="Минимум 8 символов"
+            secureTextEntry
+            value={password}
+            onChangeText={setPassword}
+            error={passwordError}
+          />
+          <Button title="Зарегистрироваться" loading={isLoading} onPress={handleRegister} />
+        </View>
+
+        <Pressable onPress={() => navigation.navigate('Login')}>
+          <Text style={styles.link}>Уже есть аккаунт? Войти</Text>
+        </Pressable>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.bg },
+  scroll: { flexGrow: 1, justifyContent: 'center', padding: spacing.xl },
+  title: { ...typography.h1, marginBottom: spacing.xs },
+  subtitle: { ...typography.body, color: colors.textSecondary, marginBottom: spacing.xl },
+  modeRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },
+  modeBtn: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+  },
+  modeBtnActive: { borderColor: colors.accent, backgroundColor: colors.accentMuted },
+  modeBtnText: { ...typography.bodySmall, color: colors.textSecondary },
+  modeBtnTextActive: { color: colors.accent, fontWeight: '600' },
+  form: { gap: spacing.md, marginBottom: spacing.xl },
+  link: { ...typography.bodySmall, color: colors.accent, textAlign: 'center' },
+});

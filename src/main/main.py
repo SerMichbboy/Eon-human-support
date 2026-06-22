@@ -1,0 +1,65 @@
+from contextlib import asynccontextmanager
+
+from dishka.integrations.fastapi import setup_dishka
+from fastapi import FastAPI
+
+from src.main.ioc.container import create_container
+from src.infrastructure.stream.broker import create_broker
+from src.infrastructure.stream.handlers.on_message_saved import register_handlers
+from src.infrastructure.tasks.broker import create_task_broker, task_broker
+from src.main.settings import Settings
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    settings: Settings = app.state.settings
+
+    # Wire TaskIQ broker URL before tasks are used
+    task_broker.is_worker_process = False
+    task_broker.redis_url = settings.redis_url  # type: ignore[attr-defined]
+    real_task_broker = create_task_broker(settings)
+    await real_task_broker.startup()
+
+    # FastStream broker
+    stream_broker = create_broker(settings)
+    register_handlers(stream_broker)
+    await stream_broker.start()
+
+    yield
+
+    await stream_broker.close()
+    await real_task_broker.shutdown()
+    await app.state.dishka_container.close()
+
+
+def create_app() -> FastAPI:
+    settings = Settings()
+
+    app = FastAPI(title="Eon", lifespan=lifespan)
+    app.state.settings = settings
+
+    container = create_container(settings)
+    setup_dishka(container, app)
+
+    from src.presentation.api.auth import router as auth_router
+    from src.presentation.api.companion import router as companion_router
+    from src.presentation.api.onboarding import router as onboarding_router
+    from src.presentation.api.profile import router as profile_router
+    from src.presentation.api.voice import router as voice_router
+    from src.presentation.ws.chat import router as ws_router
+
+    app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
+    app.include_router(companion_router, prefix="/api/v1/companion", tags=["companion"])
+    app.include_router(onboarding_router, prefix="/api/v1/onboarding", tags=["onboarding"])
+    app.include_router(profile_router, prefix="/api/v1/profile", tags=["profile"])
+    app.include_router(voice_router, prefix="/api/v1/voice", tags=["voice"])
+    app.include_router(ws_router, prefix="/ws", tags=["chat"])
+
+    return app
+
+
+app = create_app()
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

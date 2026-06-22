@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "Eon",
+    "slug": "eon-human-support",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0F0F14"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.eon.humansuport",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Eon использует микрофон для голосового общения с компаньоном."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0F0F14"
+      },
+      "package": "com.eon.humansupport",
+      "permissions": ["RECORD_AUDIO"]
+    },
+    "plugins": [
+      ["expo-av", { "microphonePermission": "Eon использует микрофон для голосового общения." }]
+    ]
+  }
+}

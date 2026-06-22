@@ -1,0 +1,26 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+dist/
+*.egg-info/
+
+# Node / Expo
+eon-mobile/node_modules/
+eon-mobile/.expo/
+eon-mobile/dist/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
