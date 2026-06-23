@@ -1,19 +1,32 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, Text, TouchableOpacity } from 'react-native';
-import { colors, radius } from '@/shared/theme';
+import { Animated, PanResponder, StyleSheet, Text, View } from 'react-native';
+import { useColors, radius } from '@/shared/theme';
 import { RecorderState } from '../hooks/useAudioRecorder';
 
 interface Props {
   state: RecorderState;
   onPressIn: () => void;
   onPressOut: () => void;
+  onLock: () => void;
 }
 
-export function VoiceButton({ state, onPressIn, onPressOut }: Props) {
+const LOCK_THRESHOLD = -55;
+
+export function VoiceButton({ state, onPressIn, onPressOut, onLock }: Props) {
+  const colors = useColors();
   const pulse = useRef(new Animated.Value(1)).current;
+  const slideY = useRef(new Animated.Value(0)).current;
+  const lockedRef = useRef(false);
+
+  const onPressInRef = useRef(onPressIn);
+  const onPressOutRef = useRef(onPressOut);
+  const onLockRef = useRef(onLock);
+  useEffect(() => { onPressInRef.current = onPressIn; }, [onPressIn]);
+  useEffect(() => { onPressOutRef.current = onPressOut; }, [onPressOut]);
+  useEffect(() => { onLockRef.current = onLock; }, [onLock]);
 
   useEffect(() => {
-    if (state === 'recording') {
+    if (state === 'recording' || state === 'locked') {
       Animated.loop(
         Animated.sequence([
           Animated.timing(pulse, { toValue: 1.15, duration: 600, useNativeDriver: true }),
@@ -23,21 +36,61 @@ export function VoiceButton({ state, onPressIn, onPressOut }: Props) {
     } else {
       pulse.stopAnimation();
       pulse.setValue(1);
+      Animated.spring(slideY, { toValue: 0, useNativeDriver: true }).start();
     }
   }, [state]);
 
-  const isRecording = state === 'recording';
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        lockedRef.current = false;
+        onPressInRef.current();
+      },
+      onPanResponderMove: (_, gesture) => {
+        if (!lockedRef.current) {
+          slideY.setValue(Math.min(0, gesture.dy));
+          if (gesture.dy < LOCK_THRESHOLD) {
+            lockedRef.current = true;
+            Animated.spring(slideY, { toValue: 0, useNativeDriver: true }).start();
+            onLockRef.current();
+          }
+        }
+      },
+      onPanResponderRelease: () => {
+        if (!lockedRef.current) {
+          Animated.spring(slideY, { toValue: 0, useNativeDriver: true }).start();
+          onPressOutRef.current();
+        }
+      },
+      onPanResponderTerminate: () => {
+        if (!lockedRef.current) {
+          Animated.spring(slideY, { toValue: 0, useNativeDriver: true }).start();
+          onPressOutRef.current();
+        }
+      },
+    })
+  ).current;
+
+  const isActive = state === 'recording' || state === 'locked';
+  const isLocked = state === 'locked';
+
+  const btnBg = isLocked ? colors.accent : isActive ? colors.accentMuted : colors.bgInput;
+  const btnBorder = isActive ? colors.accent : colors.border;
 
   return (
-    <Animated.View style={{ transform: [{ scale: pulse }] }}>
-      <TouchableOpacity
-        style={[styles.btn, isRecording && styles.btnActive]}
-        onPressIn={onPressIn}
-        onPressOut={onPressOut}
-        activeOpacity={0.8}
+    <Animated.View style={{ transform: [{ scale: pulse }, { translateY: slideY }] }}>
+      {state === 'recording' && (
+        <View style={[styles.lockHint, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
+          <Text style={[styles.lockHintText, { color: colors.textMuted }]}>↑</Text>
+        </View>
+      )}
+      <View
+        style={[styles.btn, { backgroundColor: btnBg, borderColor: btnBorder }]}
+        {...panResponder.panHandlers}
       >
-        <Text style={styles.icon}>{isRecording ? '⏹' : '🎙'}</Text>
-      </TouchableOpacity>
+        <Text style={styles.icon}>{isLocked ? '🔒' : isActive ? '●' : '🎙'}</Text>
+      </View>
     </Animated.View>
   );
 }
@@ -47,12 +100,19 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: radius.full,
-    backgroundColor: colors.bgInput,
     borderWidth: 1,
-    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  btnActive: { backgroundColor: colors.accentMuted, borderColor: colors.accent },
-  icon: { fontSize: 24 },
+  icon: { fontSize: 22 },
+  lockHint: {
+    position: 'absolute',
+    top: -28,
+    alignSelf: 'center',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+  },
+  lockHintText: { fontSize: 13 },
 });

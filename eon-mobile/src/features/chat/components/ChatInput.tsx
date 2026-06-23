@@ -1,12 +1,6 @@
-import React, { useState } from 'react';
-import {
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  View,
-  Text,
-} from 'react-native';
-import { colors, radius, spacing, typography } from '@/shared/theme';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useColors, radius, spacing, typography } from '@/shared/theme';
 import { VoiceButton } from '@/features/voice/components/VoiceButton';
 import { useAudioRecorder } from '@/features/voice/hooks/useAudioRecorder';
 import { apiClient } from '@/shared/api/client';
@@ -17,8 +11,42 @@ interface Props {
 }
 
 export function ChatInput({ onSend, disabled }: Props) {
+  const colors = useColors();
   const [text, setText] = useState('');
+  const [seconds, setSeconds] = useState(0);
   const recorder = useAudioRecorder();
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+
+  const isLocked = recorder.state === 'locked';
+  const isRecording = recorder.state === 'recording' || isLocked;
+
+  useEffect(() => {
+    if (isRecording) {
+      setSeconds(0);
+      timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+      setSeconds(0);
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [isRecording]);
+
+  useEffect(() => {
+    if (isLocked) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(fadeAnim, { toValue: 0.2, duration: 600, useNativeDriver: true }),
+          Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+        ])
+      ).start();
+    } else {
+      fadeAnim.stopAnimation();
+      fadeAnim.setValue(1);
+    }
+  }, [isLocked]);
+
+  const formatTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
   const handleSend = () => {
     const trimmed = text.trim();
@@ -27,13 +55,9 @@ export function ChatInput({ onSend, disabled }: Props) {
     setText('');
   };
 
-  const handleVoiceStop = async () => {
-    const uri = await recorder.stop();
-    if (!uri) return;
-
+  const transcribeAndSend = async (uri: string) => {
     const form = new FormData();
-    form.append('audio', { uri, name: 'audio.m4a', type: 'audio/m4a' } as any);
-
+    form.append('audio', { uri, name: 'audio.wav', type: 'audio/wav' } as any);
     try {
       const { data } = await apiClient.post<{ text: string }>('/voice/transcribe', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -44,10 +68,42 @@ export function ChatInput({ onSend, disabled }: Props) {
     }
   };
 
+  const handleVoiceSend = async () => {
+    const uri = await recorder.stop();
+    if (uri) transcribeAndSend(uri);
+  };
+
+  const handleVoiceRelease = async () => {
+    const uri = await recorder.stop();
+    if (uri) transcribeAndSend(uri);
+  };
+
+  if (isLocked) {
+    return (
+      <View style={[styles.bar, { backgroundColor: colors.bgCard, shadowColor: colors.accent + '30' }]}>
+        <TouchableOpacity
+          style={[styles.roundBtn, { backgroundColor: colors.bgInput, borderColor: colors.border }]}
+          onPress={recorder.cancel}
+        >
+          <Text style={[styles.cancelIcon, { color: colors.textMuted }]}>✕</Text>
+        </TouchableOpacity>
+
+        <View style={styles.recordingIndicator}>
+          <Animated.Text style={[styles.recDot, { opacity: fadeAnim, color: colors.accent }]}>●</Animated.Text>
+          <Text style={[styles.recTime, { color: colors.textPrimary }]}>{formatTime(seconds)}</Text>
+        </View>
+
+        <TouchableOpacity style={[styles.roundBtn, styles.sendRoundBtn, { backgroundColor: colors.accent }]} onPress={handleVoiceSend}>
+          <Text style={styles.sendIcon}>↑</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
-    <View style={styles.root}>
+    <View style={[styles.bar, { backgroundColor: colors.bgCard, shadowColor: '#000' }]}>
       <TextInput
-        style={styles.input}
+        style={[styles.input, { color: colors.textPrimary }]}
         placeholder="Напиши что-нибудь..."
         placeholderTextColor={colors.textMuted}
         value={text}
@@ -55,17 +111,18 @@ export function ChatInput({ onSend, disabled }: Props) {
         multiline
         maxLength={2000}
         selectionColor={colors.accent}
-        editable={!disabled}
+        editable={!disabled && !isRecording}
       />
 
       <VoiceButton
         state={recorder.state}
         onPressIn={recorder.start}
-        onPressOut={handleVoiceStop}
+        onPressOut={handleVoiceRelease}
+        onLock={recorder.lock}
       />
 
       <TouchableOpacity
-        style={[styles.sendBtn, (!text.trim() || disabled) && styles.sendBtnDisabled]}
+        style={[styles.roundBtn, styles.sendRoundBtn, { backgroundColor: text.trim() && !disabled ? colors.accent : colors.accentMuted }]}
         onPress={handleSend}
         disabled={!text.trim() || disabled}
       >
@@ -76,35 +133,46 @@ export function ChatInput({ onSend, disabled }: Props) {
 }
 
 const styles = StyleSheet.create({
-  root: {
+  bar: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     gap: spacing.sm,
-    padding: spacing.md,
-    backgroundColor: colors.bgCard,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
+    marginHorizontal: spacing.md,
+    marginVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.lg,
+    minHeight: 60,
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 6,
   },
   input: {
     flex: 1,
-    backgroundColor: colors.bgInput,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 10,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 8,
     maxHeight: 120,
     ...typography.body,
-    color: colors.textPrimary,
   },
-  sendBtn: {
-    width: 44,
-    height: 44,
+  roundBtn: {
+    width: 40,
+    height: 40,
     borderRadius: radius.full,
-    backgroundColor: colors.accent,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sendBtnDisabled: { backgroundColor: colors.accentMuted },
+  sendRoundBtn: { borderWidth: 0 },
   sendIcon: { color: '#fff', fontSize: 20, fontWeight: '700' },
+  cancelIcon: { fontSize: 16, fontWeight: '600' },
+  recordingIndicator: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.sm,
+  },
+  recDot: { fontSize: 14 },
+  recTime: { ...typography.body, fontVariant: ['tabular-nums'] },
 });

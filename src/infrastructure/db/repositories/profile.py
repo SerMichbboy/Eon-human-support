@@ -9,6 +9,7 @@ from src.domain.profile.entity import (
     CompanionPreferences,
     CompanionTone,
     CompanionDirectiveness,
+    CommunicationStyle,
     KeyEvent,
     KeyEventType,
     LifeContext,
@@ -70,6 +71,7 @@ def _to_entity(m: UserProfileModel) -> UserProfile:
             tone=CompanionTone(prefs.get("tone", "warm")),
             directiveness=CompanionDirectiveness(prefs.get("directiveness", "listener")),
             forbidden_topics=prefs.get("forbidden_topics", []),
+            communication_style=CommunicationStyle(prefs.get("communication_style", "friend")),
         ),
         updated_at=m.updated_at,
     )

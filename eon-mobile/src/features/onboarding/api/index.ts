@@ -14,7 +14,7 @@ function mapStepPayload(step: string, text: string): Record<string, unknown> {
       return {
         step,
         companion_preferences: {
-          directiveness: /совет|подсказ|advice/i.test(text) ? 'advisor' : 'listener',
+          communication_style: text,
         },
       };
     default:
@@ -29,7 +29,7 @@ export const onboardingApi = {
   voiceStep: (step: string, audioUri: string) => {
     const form = new FormData();
     form.append('step', step);
-    form.append('audio', { uri: audioUri, name: 'audio.m4a', type: 'audio/m4a' } as any);
+    form.append('audio', { uri: audioUri, name: 'audio.wav', type: 'audio/wav' } as any);
     return apiClient.post('/onboarding/voice-step', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
       params: { step },

@@ -49,7 +49,8 @@ async def chat_ws(websocket: WebSocket):
         crypto = await request_container.get(CryptoService)
         session = await request_container.get(AsyncSession)
 
-        context_builder = BuildContext(message_repo, daily_repo, weekly_repo, embedding_repo, claude)
+        settings = await request_container.get(Settings)
+        context_builder = BuildContext(message_repo, daily_repo, weekly_repo, embedding_repo, claude, settings)
         use_case = SendMessage(
             companion_repo, profile_repo, message_repo, key_repo,
             context_builder, claude, crypto,

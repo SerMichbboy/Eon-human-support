@@ -1,4 +1,4 @@
-import anthropic
+from openai import AsyncOpenAI
 
 from src.main.settings import Settings
 
@@ -15,7 +15,10 @@ class ClaudeClient:
         self._api_key = settings.anthropic_api_key
         self._stub = self._api_key in ("placeholder", "", None)
         if not self._stub:
-            self._client = anthropic.AsyncAnthropic(api_key=self._api_key)
+            self._client = AsyncOpenAI(
+                api_key=self._api_key,
+                base_url=settings.vsegpt_base_url or None,
+            )
 
     async def chat(self, system: str, messages: list[dict], max_tokens: int = 1024) -> str:
         if self._stub:
@@ -23,13 +26,12 @@ class ClaudeClient:
             reply = _STUB_RESPONSES[_stub_index % len(_STUB_RESPONSES)]
             _stub_index += 1
             return reply
-        response = await self._client.messages.create(
-            model="claude-sonnet-4-6",
-            system=system,
-            messages=messages,
+        response = await self._client.chat.completions.create(
+            model="openai/gpt-4.1-mini",
+            messages=[{"role": "system", "content": system}] + messages,
             max_tokens=max_tokens,
         )
-        return response.content[0].text
+        return response.choices[0].message.content
 
     async def extract_facts(self, transcript: str, step: str) -> dict:
         if self._stub:
@@ -41,10 +43,10 @@ class ClaudeClient:
             "basic_info, life_context, positive_moments, struggles, key_events, companion_preferences. "
             "Return only JSON, no explanation."
         )
-        response = await self._client.messages.create(
-            model="claude-sonnet-4-6",
+        response = await self._client.chat.completions.create(
+            model="openai/gpt-4.1-mini",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=1024,
         )
         import json
-        return json.loads(response.content[0].text)
+        return json.loads(response.choices[0].message.content)

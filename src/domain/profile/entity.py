@@ -15,6 +15,14 @@ class CompanionDirectiveness(StrEnum):
     ADVISOR = "advisor"
 
 
+class CommunicationStyle(StrEnum):
+    LISTENER = "listener"   # слушает, не советует
+    FRIEND = "friend"       # тёплый, советует когда просят
+    MENTOR = "mentor"       # прямой, конкретный, ориентирован на рост
+    MIRROR = "mirror"       # задаёт вопросы, помогает прийти к ответу самому
+    DEBATER = "debater"     # держит позицию, любит подискутировать
+
+
 class KeyEventType(StrEnum):
     JOY = "joy"
     LOSS = "loss"
@@ -63,6 +71,7 @@ class CompanionPreferences:
     tone: CompanionTone = CompanionTone.WARM
     directiveness: CompanionDirectiveness = CompanionDirectiveness.LISTENER
     forbidden_topics: list[str] = field(default_factory=list)
+    communication_style: CommunicationStyle = CommunicationStyle.FRIEND
 
 
 @dataclass

@@ -1,38 +1,58 @@
 import { NavigationContainer } from '@react-navigation/native';
-import React, { useEffect, useState } from 'react';
-import { View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
 import { profileApi } from '@/features/profile/api';
 import { useAuthStore } from '@/shared/store/auth';
+import { SplashScreen } from '../components/SplashScreen';
 import { AppNavigator, AppStackParams } from './AppNavigator';
 import { AuthNavigator } from './AuthNavigator';
 
 export function RootNavigator() {
   const [ready, setReady] = useState(false);
+  const [splashDone, setSplashDone] = useState(false);
   const [initialRoute, setInitialRoute] = useState<keyof AppStackParams>('Onboarding');
   const { isAuthenticated, hydrate } = useAuthStore();
+  const readyTimeRef = useRef<number>(0);
 
   useEffect(() => {
-    hydrate().then(async () => {
+    const minDelay = new Promise<void>((res) => setTimeout(res, 2000));
+
+    const load = hydrate().then(async () => {
       const authed = useAuthStore.getState().isAuthenticated;
       if (authed) {
         try {
           const r = await profileApi.get();
-          const hasProfile = !!r.data?.basic_info?.preferred_name;
-          setInitialRoute(hasProfile ? 'Chat' : 'Onboarding');
+          const d = r.data;
+          const hasAnyData = !!(
+            d?.basic_info?.preferred_name ||
+            d?.life_context?.occupation ||
+            d?.positive_moments?.sources_of_energy?.length ||
+            d?.struggles?.coping_mechanisms?.length ||
+            d?.companion_preferences?.communication_style
+          );
+          setInitialRoute(hasAnyData ? 'Chat' : 'Onboarding');
         } catch {
           setInitialRoute('Onboarding');
         }
       }
-    }).finally(() => setReady(true));
+    });
+
+    Promise.all([load, minDelay]).finally(() => setReady(true));
   }, []);
 
-  if (!ready) return <View style={{ flex: 1, backgroundColor: '#0F0F14' }} />;
+  const showSplash = !splashDone;
 
   return (
-    <NavigationContainer>
-      {isAuthenticated
-        ? <AppNavigator initialRoute={initialRoute} />
-        : <AuthNavigator />}
-    </NavigationContainer>
+    <>
+      {ready && (
+        <NavigationContainer>
+          {isAuthenticated
+            ? <AppNavigator initialRoute={initialRoute} />
+            : <AuthNavigator />}
+        </NavigationContainer>
+      )}
+      {showSplash && (
+        <SplashScreen onDone={() => setSplashDone(true)} />
+      )}
+    </>
   );
 }

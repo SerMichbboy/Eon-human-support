@@ -1,7 +1,7 @@
 import { Audio } from 'expo-av';
 import { useCallback, useRef, useState } from 'react';
 
-export type RecorderState = 'idle' | 'recording' | 'done';
+export type RecorderState = 'idle' | 'recording' | 'locked' | 'done';
 
 export function useAudioRecorder() {
   const [state, setState] = useState<RecorderState>('idle');
@@ -12,11 +12,34 @@ export function useAudioRecorder() {
     await Audio.requestPermissionsAsync();
     await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
 
-    const { recording: rec } = await Audio.Recording.createAsync(
-      Audio.RecordingOptionsPresets.HIGH_QUALITY
-    );
+    const { recording: rec } = await Audio.Recording.createAsync({
+      android: {
+        extension: '.wav',
+        outputFormat: 6 /* DEFAULT */,
+        audioEncoder: 3 /* AAC */,
+        sampleRate: 16000,
+        numberOfChannels: 1,
+        bitRate: 128000,
+      },
+      ios: {
+        extension: '.wav',
+        outputFormat: 'lpcm',
+        audioQuality: 127 /* MAX */,
+        sampleRate: 16000,
+        numberOfChannels: 1,
+        bitRate: 128000,
+        linearPCMBitDepth: 16,
+        linearPCMIsBigEndian: false,
+        linearPCMIsFloat: false,
+      },
+      web: { mimeType: 'audio/wav', bitsPerSecond: 128000 },
+    });
     recording.current = rec;
     setState('recording');
+  }, []);
+
+  const lock = useCallback(() => {
+    setState('locked');
   }, []);
 
   const stop = useCallback(async (): Promise<string | null> => {
@@ -29,10 +52,20 @@ export function useAudioRecorder() {
     return fileUri ?? null;
   }, []);
 
+  const cancel = useCallback(async () => {
+    if (!recording.current) return;
+    try {
+      await recording.current.stopAndUnloadAsync();
+    } catch {}
+    recording.current = null;
+    setUri(null);
+    setState('idle');
+  }, []);
+
   const reset = useCallback(() => {
     setUri(null);
     setState('idle');
   }, []);
 
-  return { state, uri, start, stop, reset };
+  return { state, uri, start, lock, stop, cancel, reset };
 }

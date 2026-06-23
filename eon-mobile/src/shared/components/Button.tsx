@@ -1,12 +1,6 @@
 import React from 'react';
-import {
-  ActivityIndicator,
-  GestureResponderEvent,
-  Pressable,
-  StyleSheet,
-  Text,
-} from 'react-native';
-import { colors, radius, typography } from '@/shared/theme';
+import { ActivityIndicator, GestureResponderEvent, Pressable, StyleSheet, Text } from 'react-native';
+import { useColors, radius, typography } from '@/shared/theme';
 
 interface Props {
   title: string;
@@ -17,12 +11,16 @@ interface Props {
 }
 
 export function Button({ title, loading, disabled, variant = 'primary', onPress }: Props) {
+  const colors = useColors();
   const isPrimary = variant === 'primary';
   return (
     <Pressable
       style={({ pressed }) => [
         styles.base,
-        isPrimary ? styles.primary : styles.ghost,
+        { borderRadius: radius.md },
+        isPrimary
+          ? { backgroundColor: colors.accent }
+          : { borderWidth: 1, borderColor: colors.border },
         pressed && styles.pressed,
       ]}
       disabled={loading || disabled}
@@ -31,7 +29,7 @@ export function Button({ title, loading, disabled, variant = 'primary', onPress 
       {loading ? (
         <ActivityIndicator color={isPrimary ? '#fff' : colors.accent} />
       ) : (
-        <Text style={[styles.label, !isPrimary && styles.ghostLabel]}>{title}</Text>
+        <Text style={[styles.label, !isPrimary && { color: colors.accent }]}>{title}</Text>
       )}
     </Pressable>
   );
@@ -40,14 +38,10 @@ export function Button({ title, loading, disabled, variant = 'primary', onPress 
 const styles = StyleSheet.create({
   base: {
     height: 52,
-    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,
   },
-  primary: { backgroundColor: colors.accent },
-  ghost: { borderWidth: 1, borderColor: colors.border },
   pressed: { opacity: 0.75 },
   label: { ...typography.body, fontWeight: '600', color: '#fff' },
-  ghostLabel: { color: colors.accent },
 });

@@ -13,6 +13,8 @@ Eon-human-support/
 └── .env                  # secrets, never commit
 ```
 
+---
+
 ## Backend Patterns
 
 ### Dependency Injection — Dishka
@@ -60,17 +62,98 @@ Messages are stored encrypted. After saving, a FastStream event triggers backgro
 
 `BuildContext` in `src/application/chat/build_context.py` assembles the full context window before each Claude call.
 
+- `_MAX_RECENT_MESSAGES = 20` in production, `_MAX_RECENT_MESSAGES_TEST = 4` in test mode
+- Profile fields (name, occupation, values, etc.) are injected into the system prompt
+- `_style_instructions()` returns a behaviour string based on `communication_style` field
+- In test mode the system prompt is minimal: `"Ты — Eon, компаньон для {name}. Отвечай по-русски, коротко и по делу."`
+
 ### Encryption
 
 Each user gets an individual AES-256-GCM key derived from `MASTER_ENCRYPTION_KEY`. All stored messages are encrypted at rest. See `src/infrastructure/crypto/aes.py`.
 
-### Claude Stub Mode
+### AI Provider — vsegpt.ru
 
-`ClaudeClient` (`src/infrastructure/claude/client.py`) checks if `ANTHROPIC_API_KEY` is `"placeholder"` or empty. If so, it returns rotating stub responses without hitting the API. Useful for local dev without a real key.
+The project uses **vsegpt.ru** as an OpenAI-compatible proxy. It works from Russia and provides access to both Claude models and Whisper STT.
+
+`ClaudeClient` (`src/infrastructure/claude/client.py`) uses `AsyncOpenAI` (not the Anthropic SDK) because vsegpt only exposes an OpenAI-compatible endpoint:
+
+```python
+from openai import AsyncOpenAI
+
+class ClaudeClient:
+    def __init__(self, settings: Settings) -> None:
+        self._client = AsyncOpenAI(
+            api_key=settings.openai_api_key,
+            base_url=settings.vsegpt_base_url or None,
+        )
+
+    async def chat(self, system, messages, max_tokens=1024):
+        response = await self._client.chat.completions.create(
+            model="openai/gpt-4.1-mini",   # change here to switch model
+            messages=[{"role": "system", "content": system}] + messages,
+            max_tokens=max_tokens,
+        )
+        return response.choices[0].message.content
+```
+
+Current model: `openai/gpt-4.1-mini` (cheap, good for test). Upgrade to `anthropic/claude-sonnet-4-6` for production quality.
+
+### STT — vsegpt Whisper
+
+`src/infrastructure/stt/whisper.py` uses the same `AsyncOpenAI` client pointed at vsegpt:
+
+```python
+self._client = AsyncOpenAI(
+    api_key=settings.openai_api_key,
+    base_url=settings.vsegpt_base_url or None,
+)
+
+async def transcribe(self, audio_bytes: bytes, filename: str = "audio.wav") -> str:
+    response = await self._client.audio.transcriptions.create(
+        model="stt-openai/gpt-4o-mini-transcribe",
+        file=(filename, io.BytesIO(audio_bytes)),
+        language="ru",
+    )
+    return response.text
+```
+
+**Always send audio as WAV** (`audio.wav` / `audio/wav`). The m4a format is rejected by vsegpt's transcription endpoint.
+
+### Settings — `.env` keys
+
+```
+ANTHROPIC_API_KEY=placeholder        # unused, kept for legacy; real key goes to OPENAI_API_KEY
+OPENAI_API_KEY=sk-or-vv-...          # vsegpt key — used for both chat and STT
+VSEGPT_BASE_URL=https://api.vsegpt.ru/v1
+MODE=test                            # test | production — controls prompt size and history depth
+MASTER_ENCRYPTION_KEY=...
+```
+
+`src/main/settings.py` exposes `vsegpt_base_url: str = ""` and `mode: str = "production"`.
+
+### MODE=test cost optimisation
+
+In `MODE=test`:
+- System prompt is minimal (~20 tokens) instead of full profile context
+- Recent message history is capped at 4 messages instead of 20
+- Target cost: ~0.03 RUB per exchange with gpt-4.1-mini
+
+Switch to `MODE=production` when deploying to real users.
+
+### Communication Styles
+
+`CommunicationStyle(StrEnum)` in `src/domain/profile/entity.py`:
+`LISTENER | FRIEND | MENTOR | MIRROR | DEBATER`
+
+`_style_instructions()` in `build_context.py` maps each value to a behaviour paragraph injected into the system prompt. Default is `FRIEND`.
+
+The profile step `companion_preferences` must be saved with `step="companion_preferences"` in the PATCH body, otherwise the backend returns 422.
 
 ### passlib + bcrypt Compatibility
 
 bcrypt 4.x breaks passlib's `CryptContext` initialization with a `ValueError`. Pin `bcrypt<4.0` in `requirements.txt`.
+
+---
 
 ## Frontend Patterns
 
@@ -93,6 +176,12 @@ return <NavigationContainer>...</NavigationContainer>;
 
 This prevents the NavigationContainer from re-rendering during auth store hydration, which previously caused touch events to stop working.
 
+The navigator also shows a `SplashScreen` overlay for a minimum of 2 seconds on first load.
+
+### Onboarding Guard
+
+`RootNavigator` checks multiple profile fields (not just `preferred_name`) to decide whether to show Onboarding or go straight to Chat. If the user already filled in their profile, the app always opens on Chat.
+
 ### KeyboardAvoidingView in Chat
 
 Use `useHeaderHeight()` from `@react-navigation/elements` as the `keyboardVerticalOffset`. Do not hardcode a pixel value — header height varies by device and navigation config.
@@ -101,6 +190,53 @@ Use `useHeaderHeight()` from `@react-navigation/elements` as the `keyboardVertic
 const headerHeight = useHeaderHeight();
 <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={headerHeight}>
 ```
+
+### Theme System
+
+**`src/shared/theme/index.ts`** exports:
+- `darkColors` and `lightColors` — full colour palettes
+- `colors` — static alias for `darkColors` (use only outside components)
+- `useColors()` — hook that reads `themeMode` from settings store and returns the correct palette
+- `spacing`, `radius`, `typography` — static design tokens
+
+**Rule**: every component must call `const colors = useColors()` at the top and use inline styles for all color-dependent values. `StyleSheet.create` is only for layout/spacing (non-color) properties.
+
+```tsx
+export function MyComponent() {
+  const colors = useColors();
+  return <View style={[styles.root, { backgroundColor: colors.bg }]} />;
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, padding: spacing.md },   // no colors here
+});
+```
+
+Radius values: `sm: 12`, `md: 18`, `lg: 28`, `full: 9999`.
+
+### Settings Store
+
+**`src/shared/store/settings.ts`** (Zustand + SecureStore):
+- `presetId / chatBg / pattern / patternColor` — chat background preset
+- `themeMode: 'dark' | 'light'` — controls `useColors()` return value
+- `setThemeMode(mode)` — persists to SecureStore as `theme_mode`
+- `hydrate()` — called on app start, restores both preset and theme
+
+Theme toggle is exposed in `SettingsModal` under a "Тема" section (🌙 Тёмная / ☀️ Светлая).
+
+### Voice Recording — Lock Gesture
+
+`VoiceButton` uses `PanResponder`. Slide up > 55 px while holding to lock recording:
+- Normal: hold to record, release to send
+- Locked: recording continues hands-free; cancel (✕) or send (↑) buttons appear in `ChatInput`
+
+Audio is recorded as **WAV** (16 kHz, mono, LINEAR_PCM on iOS). Never use m4a — vsegpt rejects it.
+
+`useAudioRecorder` states: `idle | recording | locked | done`
+
+### Communication Style Picker
+
+Both `OnboardingScreen` (step 5) and `SettingsModal` show a horizontal/vertical list of 5 style cards. Tapping a card immediately updates local state AND fires the server mutation. The server `step` field must be `"companion_preferences"` in the PATCH body.
 
 ### Feature-Sliced Design
 
@@ -120,6 +256,8 @@ Cross-feature shared code lives in `shared/` (api client, auth store, theme, uti
 
 For device testing, set `EXPO_PUBLIC_API_URL=http://<your-machine-ip>:8000` in `eon-mobile/.env`. Localhost does not work from physical devices.
 
+---
+
 ## Expo SDK Constraints
 
 **Always use `npx expo install <package>`** — do not manually specify versions. Expo manages a compatibility matrix; manual versions frequently break.
@@ -132,11 +270,16 @@ Current pinned versions (Expo SDK 54 / RN 0.81.5 / React 19.1.0):
 
 After changing packages, always restart with `npx expo start --clear`.
 
+---
+
 ## Running Services
 
 ```bash
-# Backend (first time)
+# Backend — first time
 docker compose up -d
+
+# Backend — rebuild after Python code changes
+docker compose up -d --build api
 
 # Backend logs
 docker logs -f eon-api
@@ -145,8 +288,58 @@ docker logs -f eon-api
 cd eon-mobile && npx expo start --clear
 ```
 
+---
+
+### Chat Screen — Custom Header
+
+`ChatScreen` uses `headerShown: false` and renders its own fully-JS header. This was necessary because `headerBackground` on native stack is rendered natively on iOS — JS PanResponder doesn't reach it.
+
+Custom header structure:
+```
+<View navHeader {...headerPan.panHandlers}>   ← swipeable, includes paddingTop: insets.top
+  <Pressable>⚙</Pressable>                   ← navigates to Settings
+  <Text letterSpacing=5 fontWeight=300>EON</Text>
+  <Pressable><Ionicons person-outline /></Pressable>  ← navigates to Profile
+</View>
+<KeyboardAvoidingView keyboardVerticalOffset={0}>
+  <View statusBar {...headerPan.panHandlers}>  ← also swipeable
+  <FlatList inverted />
+  <View paddingBottom={insets.bottom}>
+    <ChatInput />
+  </View>
+</KeyboardAvoidingView>
+```
+
+Swipe gestures (PanResponder on both header rows):
+- **left→right** (dx > 50): `navigation.navigate('Settings')`
+- **right→left** (dx < -50): `navigation.navigate('Profile')`
+
+### Settings — Side Screen
+
+Settings is a full navigation screen (`src/features/chat/screens/SettingsScreen.tsx`), not a modal. Registered in AppNavigator with `animation: 'slide_from_left'` — slides in from the left to mirror the swipe direction.
+
+**Important**: do NOT add `gestureDirection: 'horizontal-inverted'` — it crashes on the current native stack version.
+
+Old `SettingsModal` component is kept in `components/SettingsModal.tsx` but is no longer used by ChatScreen.
+
+### ChatInput — Floating Rounded Bar
+
+`ChatInput` renders as a floating pill with:
+- `borderRadius: radius.lg` (28px) on the outer container
+- `marginHorizontal: spacing.md` — doesn't stretch edge-to-edge
+- Shadow instead of a top border line
+- No border on the inner TextInput — just plain text on the bar background
+- Bottom safe area handled by the parent: `<View paddingBottom={insets.bottom}><ChatInput /></View>`
+
+### Scroll-to-Bottom Button
+
+`ChatScreen` tracks `contentOffset.y > 120` on the inverted FlatList. When the user scrolls up (toward older messages), an animated circle button with `chevron-down` fades in. Pressing it calls `scrollToOffset({ offset: 0, animated: true })` — in an inverted list, offset 0 is the newest message (visual bottom).
+
+---
+
 ## Known Issues / TODOs
 
-1. **STT broken in Russia** — OpenAI `/v1/audio/transcriptions` returns 403. Needs self-hosted Whisper or alternative provider. Voice input falls back to text input on the onboarding screen.
-2. **Real Anthropic key** — currently using stub mode (`ANTHROPIC_API_KEY=placeholder`). Replace with real key in `.env` when available.
-3. **No tests** — MVP only, no test suite yet.
+1. **No tests** — MVP only, no test suite yet.
+2. **MODE=test** — switch to `MODE=production` in `.env` before real user launch; also consider upgrading model from `gpt-4.1-mini`.
+3. **Light theme user bubble** — in light mode `userBubble: '#7B6EF6'` (purple) with dark text is readable but not ideal. Consider adding per-theme text colour tokens (`userBubbleText`) if the palette needs refinement.
+4. **AppNavigator header re-render on theme change** — `screenOptions` re-evaluates on each render because `useColors()` is called in the navigator component. This is correct behaviour but causes a brief header repaint on theme switch.

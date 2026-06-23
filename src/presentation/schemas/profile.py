@@ -37,6 +37,7 @@ class CompanionPreferencesSchema(BaseModel):
     tone: str = "warm"
     directiveness: str = "listener"
     forbidden_topics: list[str] = []
+    communication_style: str = "friend"
 
 
 class ProfileResponse(BaseModel):

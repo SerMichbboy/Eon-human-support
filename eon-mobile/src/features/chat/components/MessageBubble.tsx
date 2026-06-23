@@ -1,15 +1,23 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { colors, radius, spacing, typography } from '@/shared/theme';
+import { useColors, radius, spacing, typography } from '@/shared/theme';
 import { ChatMessage } from '../hooks/useChat';
 
 export function MessageBubble({ message }: { message: ChatMessage }) {
+  const colors = useColors();
   const isUser = message.role === 'user';
   return (
     <View style={[styles.row, isUser && styles.rowUser]}>
-      <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAi]}>
-        <Text style={styles.text}>{message.content}</Text>
-        <Text style={styles.time}>
+      <View
+        style={[
+          styles.bubble,
+          isUser
+            ? [styles.bubbleUser, { backgroundColor: colors.userBubble }]
+            : [styles.bubbleAi, { backgroundColor: colors.aiBubble }],
+        ]}
+      >
+        <Text style={[styles.text, { color: colors.textPrimary }]}>{message.content}</Text>
+        <Text style={[styles.time, { color: colors.textMuted }]}>
           {message.createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </Text>
       </View>
@@ -18,10 +26,11 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
 }
 
 export function TypingIndicator() {
+  const colors = useColors();
   return (
     <View style={styles.row}>
-      <View style={[styles.bubble, styles.bubbleAi, styles.typingBubble]}>
-        <Text style={styles.typingDots}>• • •</Text>
+      <View style={[styles.bubble, styles.bubbleAi, { backgroundColor: colors.aiBubble }]}>
+        <Text style={[styles.typingDots, { color: colors.textMuted }]}>• • •</Text>
       </View>
     </View>
   );
@@ -37,16 +46,9 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     gap: 4,
   },
-  bubbleUser: {
-    backgroundColor: colors.userBubble,
-    borderBottomRightRadius: 4,
-  },
-  bubbleAi: {
-    backgroundColor: colors.aiBubble,
-    borderBottomLeftRadius: 4,
-  },
+  bubbleUser: { borderBottomRightRadius: 4 },
+  bubbleAi: { borderBottomLeftRadius: 4 },
   text: { ...typography.body },
   time: { ...typography.caption, alignSelf: 'flex-end' },
-  typingBubble: { paddingVertical: spacing.sm },
-  typingDots: { ...typography.body, color: colors.textMuted, letterSpacing: 4 },
+  typingDots: { ...typography.body, letterSpacing: 4 },
 });

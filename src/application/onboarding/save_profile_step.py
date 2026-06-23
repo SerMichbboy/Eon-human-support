@@ -7,6 +7,7 @@ from src.domain.profile.entity import (
     CompanionPreferences,
     CompanionTone,
     CompanionDirectiveness,
+    CommunicationStyle,
     KeyEvent,
     KeyEventType,
     LifeContext,
@@ -73,6 +74,10 @@ class SaveProfileStep:
             if "forbidden_topics" in prefs:
                 profile.companion_preferences.forbidden_topics.extend(
                     prefs["forbidden_topics"]
+                )
+            if "communication_style" in prefs:
+                profile.companion_preferences.communication_style = CommunicationStyle(
+                    prefs["communication_style"]
                 )
 
         profile.updated_at = datetime.utcnow()
