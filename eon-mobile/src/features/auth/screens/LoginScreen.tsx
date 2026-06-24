@@ -2,6 +2,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Button } from '@/shared/components/Button';
+import { FullscreenLoader } from '@/shared/components/FullscreenLoader';
 import { Input } from '@/shared/components/Input';
 import { useColors, radius, spacing, typography } from '@/shared/theme';
 import { AuthStackParams } from '@/core/navigation/AuthNavigator';
@@ -27,6 +28,8 @@ export function LoginScreen({ navigation }: Props) {
   };
 
   return (
+    <>
+    <FullscreenLoader visible={isLoading} message="Открываем твои данные…" />
     <KeyboardAvoidingView style={[styles.root, { backgroundColor: colors.bg }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <Text style={[styles.title, { color: colors.textPrimary }]}>Привет</Text>
@@ -66,6 +69,7 @@ export function LoginScreen({ navigation }: Props) {
         </Pressable>
       </ScrollView>
     </KeyboardAvoidingView>
+    </>
   );
 }
 
