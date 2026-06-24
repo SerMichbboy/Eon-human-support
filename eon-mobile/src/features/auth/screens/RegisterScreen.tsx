@@ -20,6 +20,7 @@ export function RegisterScreen({ navigation }: Props) {
   const registerEmail = useRegisterEmail();
   const registerPhone = useRegisterPhone();
   const isLoading = registerEmail.isPending || registerPhone.isPending;
+  const error = registerEmail.error || registerPhone.error;
 
   const handleRegister = () => {
     setPasswordError('');
@@ -55,6 +56,7 @@ export function RegisterScreen({ navigation }: Props) {
             <Input label="Телефон" placeholder="+79001234567" keyboardType="phone-pad" value={phone} onChangeText={setPhone} />
           )}
           <Input label="Пароль" placeholder="Минимум 8 символов" secureTextEntry value={password} onChangeText={setPassword} error={passwordError} />
+          {error && <Text style={[styles.error, { color: colors.error }]}>Ошибка: {(error as any)?.response?.data?.detail ?? (error as Error)?.message ?? 'Попробуй ещё раз'}</Text>}
           <Button title="Зарегистрироваться" loading={isLoading} onPress={handleRegister} />
         </View>
 
@@ -75,5 +77,6 @@ const styles = StyleSheet.create({
   modeBtn: { flex: 1, paddingVertical: spacing.sm, borderRadius: radius.sm, borderWidth: 1, alignItems: 'center' },
   modeBtnText: { ...typography.bodySmall },
   form: { gap: spacing.md, marginBottom: spacing.xl },
+  error: { ...typography.bodySmall },
   link: { ...typography.bodySmall, textAlign: 'center' },
 });
