@@ -5,7 +5,7 @@ import { useAuthStore } from '@/shared/store/auth';
 import { authApi } from '../api';
 
 async function doRegisterEmail(email: string, password: string, setTokens: Function) {
-  const { rawKey, salt, encryptedKey } = generateE2EKeyPair(password);
+  const { rawKey, salt, encryptedKey } = await generateE2EKeyPair(password);
   const rawKeyB64 = rawKeyToHeader(rawKey);
   await authApi.registerEmail(email, password, salt, encryptedKey);
   const { data } = await authApi.loginEmail(email, password);
@@ -13,7 +13,7 @@ async function doRegisterEmail(email: string, password: string, setTokens: Funct
 }
 
 async function doRegisterPhone(phone: string, password: string, setTokens: Function) {
-  const { rawKey, salt, encryptedKey } = generateE2EKeyPair(password);
+  const { rawKey, salt, encryptedKey } = await generateE2EKeyPair(password);
   const rawKeyB64 = rawKeyToHeader(rawKey);
   await authApi.registerPhone(phone, password, salt, encryptedKey);
   const { data } = await authApi.loginPhone(phone, password);

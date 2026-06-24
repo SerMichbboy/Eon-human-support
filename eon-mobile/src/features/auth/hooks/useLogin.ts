@@ -11,7 +11,7 @@ async function handleLoginResponse(
   let rawKeyB64: string | undefined;
   if (data.key_salt && data.encrypted_key) {
     try {
-      const rawKey = unlockE2EKey(password, data.key_salt, data.encrypted_key);
+      const rawKey = await unlockE2EKey(password, data.key_salt, data.encrypted_key);
       rawKeyB64 = rawKeyToHeader(rawKey);
     } catch {
       // Key derivation failed (wrong password) — login will still succeed for now

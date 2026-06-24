@@ -25,14 +25,17 @@ export interface E2EKeyPair {
   encryptedKey: string;   // base64 AES-GCM(rawKey, derived_key) (sent to server)
 }
 
-/** Derives an AES-256 key from password + salt via PBKDF2-HMAC-SHA256, 100k iterations. */
+// 10k iterations — pure-JS PBKDF2 on the RN/Hermes thread; 100k blocks for 10-15s on device.
+// The raw key is a random 256-bit secret, so 10k still gives solid wrapping-key protection.
 function deriveKey(password: string, salt: Uint8Array): Uint8Array {
   const enc = new TextEncoder();
-  return pbkdf2(sha256, enc.encode(password), salt, { c: 100_000, dkLen: 32 });
+  return pbkdf2(sha256, enc.encode(password), salt, { c: 10_000, dkLen: 32 });
 }
 
 /** Generates a new random raw key and wraps it with the password-derived key. */
-export function generateE2EKeyPair(password: string): E2EKeyPair {
+export async function generateE2EKeyPair(password: string): Promise<E2EKeyPair> {
+  // Yield to UI so the loading spinner renders before PBKDF2 blocks the JS thread.
+  await new Promise<void>((resolve) => setTimeout(resolve, 50));
   const salt = randomBytes(16);
   const rawKey = randomBytes(32);
   const derivedKey = deriveKey(password, salt);
@@ -55,7 +58,8 @@ export function generateE2EKeyPair(password: string): E2EKeyPair {
 }
 
 /** Decrypts the raw key from server-returned salt + encryptedKey using the password. */
-export function unlockE2EKey(password: string, saltB64: string, encryptedKeyB64: string): Uint8Array {
+export async function unlockE2EKey(password: string, saltB64: string, encryptedKeyB64: string): Promise<Uint8Array> {
+  await new Promise<void>((resolve) => setTimeout(resolve, 50));
   const salt = fromBase64(saltB64);
   const blob = fromBase64(encryptedKeyB64);
   const nonce = blob.slice(0, 12);
