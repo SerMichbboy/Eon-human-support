@@ -2,15 +2,84 @@ import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppStackParams } from '@/core/navigation/AppNavigator';
 import { companionApi } from '@/features/companion/api';
 import { useAuthStore } from '@/shared/store/auth';
 import { useColors, radius, spacing, typography } from '@/shared/theme';
+import { GlassCard } from '@/shared/components/Glass';
 import { profileApi } from '../api';
 
 type Props = NativeStackScreenProps<AppStackParams, 'Profile'>;
+type ColorsType = ReturnType<typeof useColors>;
+
+const STYLE_LABELS: Record<string, string> = {
+  listener: 'Слушатель',
+  friend: 'Друг',
+  mentor: 'Наставник',
+  mirror: 'Зеркало',
+  debater: 'Полемик',
+};
+
+const APP_FEATURES = [
+  {
+    icon: '🔐',
+    title: 'Шифрование',
+    desc: 'Твои слова зашифрованы ключом, который есть только у тебя.',
+  },
+  {
+    icon: '🧠',
+    title: 'Память',
+    desc: 'Помнит всё, что ты рассказывал. Замечает детали.',
+  },
+  {
+    icon: '🎭',
+    title: 'Твой стиль',
+    desc: 'Слушатель, друг, наставник — выбери сам.',
+  },
+  {
+    icon: '🤫',
+    title: 'Без осуждений',
+    desc: 'Говори о чём угодно. Без нотаций.',
+  },
+  {
+    icon: '🚫',
+    title: 'Приватность',
+    desc: 'Данные не продаём и не используем для обучения.',
+  },
+];
+
+function AboutSection({ colors }: { colors: ColorsType }) {
+  return (
+    <View style={[styles.aboutCard, { borderTopColor: colors.border }]}>
+      <Text style={[styles.aboutTitle, { color: colors.textMuted }]}>Что такое Eon?</Text>
+      <Text style={[styles.aboutText, { color: colors.textSecondary }]}>
+        Eon — это не чат-бот и не терапевт. Это кто-то, кто просто рядом.
+      </Text>
+      <Text style={[styles.aboutText, { color: colors.textSecondary }]}>
+        Он помнит, что ты рассказывал раньше. Не даёт советов, которые ты не просил, и не осуждает за то, что ты чувствуешь.
+      </Text>
+
+      <FlatList
+        data={APP_FEATURES}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        keyExtractor={(item) => item.title}
+        contentContainerStyle={styles.featuresScroll}
+        renderItem={({ item }) => (
+          <GlassCard style={styles.featureCard} borderRadius={radius.md} intensity={30}>
+            <Text style={styles.featureIcon}>{item.icon}</Text>
+            <Text style={[styles.featureTitle, { color: colors.textPrimary }]}>{item.title}</Text>
+            <Text style={[styles.featureDesc, { color: colors.textSecondary }]}>{item.desc}</Text>
+          </GlassCard>
+        )}
+      />
+
+      <Text style={[styles.aboutVersion, { color: colors.textMuted }]}>Eon · v0.1</Text>
+    </View>
+  );
+}
 
 export function ProfileScreen({ navigation }: Props) {
   const colors = useColors();
@@ -55,7 +124,7 @@ export function ProfileScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: colors.bg }]} edges={['bottom']}>
       <ScrollView contentContainerStyle={styles.scroll}>
-        <View style={[styles.companionCard, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
+        <GlassCard style={styles.companionCard}>
           {editingName ? (
             <View style={styles.renameRow}>
               <TextInput
@@ -89,10 +158,10 @@ export function ProfileScreen({ navigation }: Props) {
               </Pressable>
             </View>
           )}
-        </View>
+        </GlassCard>
 
         {!hasProfile && (
-          <View style={[styles.emptyCard, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
+          <GlassCard style={styles.emptyCard}>
             <Text style={[styles.emptyText, { color: colors.textPrimary }]}>Профиль не заполнен</Text>
             <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>
               Расскажи о себе, чтобы Eon мог лучше тебя понять
@@ -103,11 +172,11 @@ export function ProfileScreen({ navigation }: Props) {
             >
               <Text style={styles.fillBtnText}>Заполнить профиль</Text>
             </Pressable>
-          </View>
+          </GlassCard>
         )}
 
         {hasProfile && (
-          <View style={[styles.profileCard, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
+          <GlassCard style={styles.profileCard}>
             {data.basic_info.preferred_name && (
               <ProfileRow label="Имя" value={data.basic_info.preferred_name} first colors={colors} />
             )}
@@ -144,17 +213,11 @@ export function ProfileScreen({ navigation }: Props) {
             {data.companion_preferences?.communication_style && (
               <ProfileRow
                 label="Стиль общения"
-                value={{
-                  listener: 'Слушатель',
-                  friend: 'Друг',
-                  mentor: 'Наставник',
-                  mirror: 'Зеркало',
-                  debater: 'Полемик',
-                }[data.companion_preferences.communication_style] ?? data.companion_preferences.communication_style}
+                value={STYLE_LABELS[data.companion_preferences.communication_style] ?? data.companion_preferences.communication_style}
                 colors={colors}
               />
             )}
-          </View>
+          </GlassCard>
         )}
 
         {hasProfile && (
@@ -170,41 +233,11 @@ export function ProfileScreen({ navigation }: Props) {
           <Text style={[styles.logoutText, { color: colors.error }]}>Выйти из аккаунта</Text>
         </Pressable>
 
-        <View style={[styles.aboutCard, { borderTopColor: colors.border }]}>
-          <Text style={[styles.aboutTitle, { color: colors.textMuted }]}>Что такое Eon?</Text>
-          <Text style={[styles.aboutText, { color: colors.textSecondary }]}>
-            Eon — это не чат-бот и не терапевт. Это кто-то, кто просто рядом.
-          </Text>
-          <Text style={[styles.aboutText, { color: colors.textSecondary }]}>
-            Он помнит, что ты рассказывал раньше. Замечает, когда тебе тяжело.
-            Не даёт советов, которые ты не просил, и не осуждает за то, что ты чувствуешь.
-          </Text>
-          <Text style={[styles.aboutText, { color: colors.textSecondary }]}>
-            Иногда нужно просто выговориться — без страха, что тебя неправильно поймут.
-            Именно для этого он здесь.
-          </Text>
-
-          <View style={[styles.privacyCard, { backgroundColor: colors.bgCard, borderColor: colors.accentMuted }]}>
-            <Text style={[styles.privacyTitle, { color: colors.accent }]}>Твои слова — только твои</Text>
-            <Text style={[styles.privacyText, { color: colors.textSecondary }]}>
-              Каждое сообщение зашифровано индивидуальным ключом — никто, кроме тебя,
-              не может прочитать твою переписку. Даже мы.
-            </Text>
-            <Text style={[styles.privacyText, { color: colors.textSecondary }]}>
-              Мы не продаём данные, не передаём их третьим лицам и не используем
-              твои разговоры для обучения моделей.
-            </Text>
-            <Text style={[styles.privacyBadge, { color: colors.accentMuted }]}>AES-256-GCM · Сквозное шифрование</Text>
-          </View>
-
-          <Text style={[styles.aboutVersion, { color: colors.textMuted }]}>Eon · v0.1 MVP</Text>
-        </View>
+        <AboutSection colors={colors} />
       </ScrollView>
     </SafeAreaView>
   );
 }
-
-type ColorsType = ReturnType<typeof useColors>;
 
 function ProfileRow({
   label,
@@ -233,11 +266,7 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   scroll: { padding: spacing.xl, gap: spacing.lg },
-  profileCard: {
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
+  profileCard: { overflow: 'hidden' },
   profileRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -255,10 +284,8 @@ const styles = StyleSheet.create({
   profileRowValue: { ...typography.body, flex: 1 },
   profileRowValueMultiline: { lineHeight: 22 },
   emptyCard: {
-    borderRadius: radius.sm,
     padding: spacing.lg,
     gap: spacing.sm,
-    borderWidth: 1,
   },
   emptyText: { ...typography.body, fontWeight: '600' },
   emptySubtext: { ...typography.bodySmall },
@@ -273,7 +300,7 @@ const styles = StyleSheet.create({
   editBtnText: { ...typography.body },
   logoutBtn: { marginTop: spacing.sm, alignItems: 'center', padding: spacing.md },
   logoutText: { ...typography.body },
-  companionCard: { borderRadius: radius.sm, padding: spacing.md, gap: spacing.sm, borderWidth: 1 },
+  companionCard: { padding: spacing.md, gap: spacing.sm },
   companionName: { fontSize: 20, fontWeight: '600' },
   editLink: { ...typography.bodySmall },
   renameRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
@@ -295,13 +322,16 @@ const styles = StyleSheet.create({
   },
   aboutText: { ...typography.body, lineHeight: 22 },
   aboutVersion: { ...typography.caption, marginTop: spacing.sm },
-  privacyCard: {
-    borderRadius: radius.sm,
-    padding: spacing.md,
-    gap: spacing.sm,
-    borderWidth: 1,
+  featuresScroll: {
+    gap: spacing.md,
+    paddingVertical: spacing.sm,
   },
-  privacyTitle: { ...typography.bodySmall, fontWeight: '600' },
-  privacyText: { ...typography.bodySmall, lineHeight: 20 },
-  privacyBadge: { ...typography.caption, marginTop: spacing.xs, letterSpacing: 0.5 },
+  featureCard: {
+    width: 148,
+    padding: spacing.md,
+    gap: spacing.xs,
+  },
+  featureIcon: { fontSize: 28 },
+  featureTitle: { ...typography.body, fontWeight: '600' },
+  featureDesc: { ...typography.bodySmall, lineHeight: 18 },
 });

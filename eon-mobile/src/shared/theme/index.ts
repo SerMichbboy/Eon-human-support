@@ -1,5 +1,7 @@
 import { useSettingsStore } from '../store/settings';
 
+export { glass } from './glass';
+
 export const darkColors = {
   bg: '#0F0F14',
   bgCard: '#1A1A24',
@@ -32,7 +34,7 @@ export const lightColors = {
   success: '#4CC9A0',
 } as const;
 
-export type Colors = typeof darkColors;
+export type Colors = { [K in keyof typeof darkColors]: string };
 
 // Static fallback (dark) — used outside components
 export const colors: Colors = darkColors;

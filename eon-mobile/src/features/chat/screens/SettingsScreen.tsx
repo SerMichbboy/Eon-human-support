@@ -8,6 +8,7 @@ import { AppStackParams } from '@/core/navigation/AppNavigator';
 import { profileApi } from '@/features/profile/api';
 import { BG_PRESETS, ThemeMode, useSettingsStore } from '@/shared/store/settings';
 import { useColors, radius, spacing, typography } from '@/shared/theme';
+import { GlassPanel } from '@/shared/components/Glass';
 import { PatternOverlay } from '../components/PatternOverlay';
 
 type Props = NativeStackScreenProps<AppStackParams, 'Settings'>;
@@ -62,13 +63,13 @@ export function SettingsScreen({ navigation }: Props) {
   return (
     <View style={[styles.root, { backgroundColor: colors.bg }]}>
       {/* Header */}
-      <View style={[styles.header, { backgroundColor: colors.bgCard, borderBottomColor: colors.border, paddingTop: insets.top }]}>
+      <GlassPanel style={[styles.header, { paddingTop: insets.top }]}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={24} color={colors.textSecondary} />
         </Pressable>
         <Text style={[styles.title, { color: colors.textPrimary }]}>Настройки</Text>
         <View style={styles.backBtn} />
-      </View>
+      </GlassPanel>
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + spacing.xl }]}>
 
@@ -162,7 +163,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.sm,
-    borderBottomWidth: 1,
   },
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   title: { ...typography.h2 },

@@ -19,6 +19,7 @@ import { companionApi } from '@/features/companion/api';
 import { AppStackParams } from '@/core/navigation/AppNavigator';
 import { useSettingsStore } from '@/shared/store/settings';
 import { useColors, radius, spacing, typography } from '@/shared/theme';
+import { GlassPanel } from '@/shared/components/Glass';
 import { ChatInput } from '../components/ChatInput';
 import { MessageBubble, TypingIndicator } from '../components/MessageBubble';
 import { PatternOverlay } from '../components/PatternOverlay';
@@ -83,10 +84,9 @@ export function ChatScreen({ navigation }: Props) {
     <View style={[styles.root, { backgroundColor: chatBg }]}>
       <PatternOverlay pattern={pattern} color={patternColor} />
 
-
       {/* Custom header — full JS, PanResponder works everywhere */}
-      <View
-        style={[styles.navHeader, { backgroundColor: colors.bgCard, borderBottomColor: colors.border, paddingTop: insets.top }]}
+      <GlassPanel
+        style={[styles.navHeader, { paddingTop: insets.top }]}
         {...headerPan.panHandlers}
       >
         <Pressable onPress={() => navigation.navigate('Settings')} hitSlop={12} style={styles.navBtn}>
@@ -100,7 +100,7 @@ export function ChatScreen({ navigation }: Props) {
         <Pressable onPress={() => navigation.navigate('Profile')} hitSlop={12} style={styles.navBtn}>
           <Ionicons name="person-outline" size={22} color={colors.textSecondary} />
         </Pressable>
-      </View>
+      </GlassPanel>
 
       <KeyboardAvoidingView
         style={styles.flex}
@@ -108,15 +108,12 @@ export function ChatScreen({ navigation }: Props) {
         keyboardVerticalOffset={0}
       >
         {/* Status bar */}
-        <View
-          style={[styles.statusBar, { backgroundColor: colors.bgCard, borderBottomColor: colors.border }]}
-          {...headerPan.panHandlers}
-        >
+        <GlassPanel style={styles.statusBar} {...headerPan.panHandlers}>
           <View style={[styles.statusDot, { backgroundColor: isConnected ? colors.success : colors.textMuted }]} />
           <Text style={[styles.statusText, { color: colors.textSecondary }]}>
             {isConnected ? `${companionName} онлайн` : 'Подключение...'}
           </Text>
-        </View>
+        </GlassPanel>
 
         <View style={styles.listWrapper}>
           <FlatList
@@ -171,7 +168,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.sm,
-    borderBottomWidth: 1,
   },
   navBtn: {
     width: 40,
@@ -190,7 +186,6 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
   },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
   statusText: { ...typography.bodySmall, flex: 1 },
@@ -217,5 +212,4 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 4,
   },
-
 });
