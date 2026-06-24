@@ -3,9 +3,13 @@ import { unlockE2EKey, rawKeyToHeader } from '@/shared/crypto/e2e';
 import { useAuthStore } from '@/shared/store/auth';
 import { authApi } from '../api';
 
+type LoginType = 'email' | 'phone';
+
 async function handleLoginResponse(
   data: Awaited<ReturnType<typeof authApi.loginEmail>>['data'],
   password: string,
+  credential: string,
+  credentialType: LoginType,
   setTokens: Function,
 ) {
   let rawKeyB64: string | undefined;
@@ -18,6 +22,7 @@ async function handleLoginResponse(
     }
   }
   await setTokens(data.access_token, data.refresh_token, rawKeyB64);
+  await useAuthStore.getState().setCredential(credential, credentialType);
 }
 
 export function useLoginEmail() {
@@ -25,7 +30,7 @@ export function useLoginEmail() {
   return useMutation({
     mutationFn: async ({ email, password }: { email: string; password: string }) => {
       const { data } = await authApi.loginEmail(email, password);
-      await handleLoginResponse(data, password, setTokens);
+      await handleLoginResponse(data, password, email, 'email', setTokens);
     },
   });
 }
@@ -35,7 +40,7 @@ export function useLoginPhone() {
   return useMutation({
     mutationFn: async ({ phone, password }: { phone: string; password: string }) => {
       const { data } = await authApi.loginPhone(phone, password);
-      await handleLoginResponse(data, password, setTokens);
+      await handleLoginResponse(data, password, phone, 'phone', setTokens);
     },
   });
 }

@@ -5,7 +5,10 @@ import { queryClient } from '@/core/providers/QueryProvider';
 interface AuthState {
   accessToken: string | null;
   isAuthenticated: boolean;
+  credential: string | null;
+  credentialType: 'email' | 'phone' | null;
   setTokens: (access: string, refresh: string, rawKeyB64?: string) => Promise<void>;
+  setCredential: (value: string, type: 'email' | 'phone') => Promise<void>;
   logout: () => Promise<void>;
   hydrate: () => Promise<void>;
   getRawKeyB64: () => Promise<string | null>;
@@ -14,6 +17,14 @@ interface AuthState {
 export const useAuthStore = create<AuthState>((set) => ({
   accessToken: null,
   isAuthenticated: false,
+  credential: null,
+  credentialType: null,
+
+  setCredential: async (value, type) => {
+    await SecureStore.setItemAsync('auth_credential', value);
+    await SecureStore.setItemAsync('auth_credential_type', type);
+    set({ credential: value, credentialType: type });
+  },
 
   setTokens: async (access, refresh, rawKeyB64) => {
     await SecureStore.setItemAsync('access_token', access);
@@ -25,16 +36,29 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   logout: async () => {
-    await SecureStore.deleteItemAsync('access_token');
-    await SecureStore.deleteItemAsync('refresh_token');
-    await SecureStore.deleteItemAsync('raw_key');
+    await Promise.all([
+      SecureStore.deleteItemAsync('access_token'),
+      SecureStore.deleteItemAsync('refresh_token'),
+      SecureStore.deleteItemAsync('raw_key'),
+      SecureStore.deleteItemAsync('auth_credential'),
+      SecureStore.deleteItemAsync('auth_credential_type'),
+    ]);
     queryClient.clear();
-    set({ accessToken: null, isAuthenticated: false });
+    set({ accessToken: null, isAuthenticated: false, credential: null, credentialType: null });
   },
 
   hydrate: async () => {
-    const token = await SecureStore.getItemAsync('access_token');
-    set({ accessToken: token, isAuthenticated: !!token });
+    const [token, credential, credentialType] = await Promise.all([
+      SecureStore.getItemAsync('access_token'),
+      SecureStore.getItemAsync('auth_credential'),
+      SecureStore.getItemAsync('auth_credential_type'),
+    ]);
+    set({
+      accessToken: token,
+      isAuthenticated: !!token,
+      credential,
+      credentialType: (credentialType as 'email' | 'phone' | null) ?? null,
+    });
   },
 
   getRawKeyB64: async () => SecureStore.getItemAsync('raw_key'),

@@ -10,6 +10,7 @@ async function doRegisterEmail(email: string, password: string, setTokens: Funct
   await authApi.registerEmail(email, password, salt, encryptedKey, pbkdf2C);
   const { data } = await authApi.loginEmail(email, password);
   await setTokens(data.access_token, data.refresh_token, rawKeyB64);
+  await useAuthStore.getState().setCredential(email, 'email');
 }
 
 async function doRegisterPhone(phone: string, password: string, setTokens: Function) {
@@ -18,6 +19,7 @@ async function doRegisterPhone(phone: string, password: string, setTokens: Funct
   await authApi.registerPhone(phone, password, salt, encryptedKey, pbkdf2C);
   const { data } = await authApi.loginPhone(phone, password);
   await setTokens(data.access_token, data.refresh_token, rawKeyB64);
+  await useAuthStore.getState().setCredential(phone, 'phone');
 }
 
 function showPasswordWarning(onConfirm: () => void) {

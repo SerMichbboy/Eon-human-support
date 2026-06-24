@@ -12,7 +12,7 @@ export function FullscreenLoader({ visible, message }: Props) {
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
       <View style={styles.backdrop}>
-        <View style={[styles.card, { backgroundColor: colors.surface }]}>
+        <View style={[styles.card, { backgroundColor: colors.bgCard }]}>
           <ActivityIndicator size="large" color={colors.accent} />
           {!!message && <Text style={[styles.text, { color: colors.textSecondary }]}>{message}</Text>}
         </View>

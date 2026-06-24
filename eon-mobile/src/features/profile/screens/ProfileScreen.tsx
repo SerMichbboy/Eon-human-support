@@ -6,6 +6,7 @@ import { ActivityIndicator, Alert, FlatList, Pressable, ScrollView, StyleSheet, 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppStackParams } from '@/core/navigation/AppNavigator';
 import { companionApi } from '@/features/companion/api';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '@/shared/store/auth';
 import { useColors, radius, spacing, typography } from '@/shared/theme';
 import { GlassCard } from '@/shared/components/Glass';
@@ -81,6 +82,8 @@ function AboutSection({ colors }: { colors: ColorsType }) {
 export function ProfileScreen({ navigation }: Props) {
   const colors = useColors();
   const logout = useAuthStore((s) => s.logout);
+  const credential = useAuthStore((s) => s.credential);
+  const credentialType = useAuthStore((s) => s.credentialType);
   const queryClient = useQueryClient();
   const [botName, setBotName] = useState('');
   const [editingName, setEditingName] = useState(false);
@@ -156,6 +159,25 @@ export function ProfileScreen({ navigation }: Props) {
             </View>
           )}
         </GlassCard>
+
+        {!!credential && (
+          <GlassCard style={styles.accountCard}>
+            <View style={styles.accountRow}>
+              <Ionicons
+                name={credentialType === 'phone' ? 'phone-portrait-outline' : 'mail-outline'}
+                size={15}
+                color={colors.textMuted}
+                style={styles.accountIcon}
+              />
+              <Text style={[styles.accountLabel, { color: colors.textMuted }]}>
+                {credentialType === 'phone' ? 'Телефон' : 'Email'}
+              </Text>
+              <Text style={[styles.accountValue, { color: colors.textSecondary }]} numberOfLines={1}>
+                {credential}
+              </Text>
+            </View>
+          </GlassCard>
+        )}
 
         {!hasProfile && (
           <GlassCard style={styles.emptyCard}>
@@ -288,6 +310,11 @@ const styles = StyleSheet.create({
   },
   profileRowValue: { ...typography.body, flex: 1 },
   profileRowValueMultiline: { lineHeight: 22 },
+  accountCard: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 2 },
+  accountRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  accountIcon: { flexShrink: 0 },
+  accountLabel: { ...typography.bodySmall, flexShrink: 0 },
+  accountValue: { ...typography.bodySmall, flex: 1 },
   emptyCard: {
     padding: spacing.lg,
     gap: spacing.sm,

@@ -61,7 +61,7 @@ export function LoginScreen({ navigation }: Props) {
           )}
           <Input label="Пароль" placeholder="••••••••" secureTextEntry value={password} onChangeText={setPassword} />
           {error && <Text style={[styles.error, { color: colors.error }]}>Неверный логин или пароль</Text>}
-          <Button title="Войти" loading={isLoading} onPress={handleLogin} />
+          <Button title="Войти" onPress={handleLogin} />
         </View>
 
         <Pressable onPress={() => navigation.navigate('Register')}>
