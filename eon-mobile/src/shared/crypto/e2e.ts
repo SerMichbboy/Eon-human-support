@@ -7,7 +7,7 @@ import { gcm } from '@noble/ciphers/aes.js';
 
 function randomBytes(n: number): Uint8Array {
   const buf = new Uint8Array(n);
-  (globalThis.crypto ?? require('crypto')).getRandomValues(buf);
+  globalThis.crypto.getRandomValues(buf);
   return buf;
 }
 
