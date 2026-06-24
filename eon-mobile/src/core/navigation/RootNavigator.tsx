@@ -8,13 +8,10 @@ import { AppNavigator, AppStackParams } from './AppNavigator';
 import { AuthNavigator } from './AuthNavigator';
 
 function hasFilledProfile(d: any): boolean {
-  return !!(
-    d?.basic_info?.preferred_name ||
-    d?.life_context?.occupation ||
-    d?.positive_moments?.sources_of_energy?.length ||
-    d?.struggles?.coping_mechanisms?.length ||
-    d?.companion_preferences?.communication_style
-  );
+  // preferred_name starts as null and is set only at onboarding step 1.
+  // companion_preferences.communication_style has a server-side default ("friend"),
+  // so it can't be used as a signal that the user has actually entered data.
+  return !!d?.basic_info?.preferred_name;
 }
 
 export function RootNavigator() {
