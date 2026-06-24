@@ -8,6 +8,7 @@ from src.domain.user.repository import IUserKeyRepository, IUserRepository
 from src.infrastructure.db.models import UserKeyModel, UserModel
 
 
+
 class UserRepository(IUserRepository):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -69,6 +70,17 @@ class UserKeyRepository(IUserKeyRepository):
 
     async def get_by_id(self, key_id: UUID) -> UserKey | None:
         model = await self._session.get(UserKeyModel, key_id)
+        if not model:
+            return None
+        return UserKey(id=model.id, encrypted_key=model.encrypted_key, created_at=model.created_at)
+
+    async def get_by_user_id(self, user_id: UUID) -> UserKey | None:
+        result = await self._session.execute(
+            select(UserKeyModel)
+            .join(UserModel, UserModel.encryption_key_id == UserKeyModel.id)
+            .where(UserModel.id == user_id)
+        )
+        model = result.scalar_one_or_none()
         if not model:
             return None
         return UserKey(id=model.id, encrypted_key=model.encrypted_key, created_at=model.created_at)

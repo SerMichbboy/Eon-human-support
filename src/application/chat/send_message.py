@@ -42,7 +42,7 @@ class SendMessage:
             raise ValueError("Companion not found")
 
         profile = await self._profiles.get_by_user_id(user_id)
-        user_key = await self._keys.get_by_id(profile.user_id) if profile else None
+        user_key = await self._keys.get_by_user_id(user_id)
         raw_key = self._crypto.decrypt_user_key(user_key.encrypted_key) if user_key else None
 
         # Encrypt and save user message
@@ -61,12 +61,16 @@ class SendMessage:
         system_prompt = await self._context.build_system_prompt(profile)
         history = await self._context.get_recent_messages(companion.id)
 
-        # Decrypt history for Claude
+        # Decrypt history for Claude (fallback to raw content for pre-encryption messages)
         if raw_key:
-            history = [
-                {"role": m["role"], "content": self._crypto.decrypt_field(m["content"], raw_key)}
-                for m in history
-            ]
+            decrypted = []
+            for m in history:
+                try:
+                    content = self._crypto.decrypt_field(m["content"], raw_key)
+                except Exception:
+                    content = m["content"]
+                decrypted.append({"role": m["role"], "content": content})
+            history = decrypted
 
         # Get reply
         reply = await self._claude.chat(system=system_prompt, messages=history)

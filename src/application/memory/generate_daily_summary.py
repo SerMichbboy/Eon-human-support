@@ -48,6 +48,9 @@ def _format_dialogue(messages: list[Message], raw_key: bytes, crypto: CryptoServ
     lines = []
     for m in messages:
         role = "Пользователь" if m.role == MessageRole.USER else "Eon"
-        content = crypto.decrypt_field(m.content, raw_key)
+        try:
+            content = crypto.decrypt_field(m.content, raw_key)
+        except Exception:
+            content = m.content
         lines.append(f"{role}: {content}")
     return "\n".join(lines)

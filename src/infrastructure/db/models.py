@@ -6,14 +6,13 @@ from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
-    Enum,
     ForeignKey,
     LargeBinary,
     String,
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -78,12 +77,12 @@ class UserProfileModel(Base):
     user_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("users.id"), unique=True, nullable=False
     )
-    basic_info: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
-    life_context: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
-    positive_moments: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
-    struggles: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
-    key_events: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
-    companion_preferences: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    basic_info: Mapped[str] = mapped_column(Text, nullable=False, default="")  # encrypted JSON
+    life_context: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    positive_moments: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    struggles: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    key_events: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    companion_preferences: Mapped[str] = mapped_column(Text, nullable=False, default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     user: Mapped[UserModel] = relationship(back_populates="profile")

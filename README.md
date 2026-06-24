@@ -1,183 +1,145 @@
-# Eon — AI-компаньон для эмоциональной поддержки
+# Eon
 
-Eon — это персональный AI-компаньон, который просто рядом. 
-Нейро друг, который всегда рядом и готов поддержать советом.
+**Eon — это кто-то, кто просто рядом.**
+
+Не чат-бот. Не терапевт. Персональный компаньон, с которым можно говорить о чём угодно — без страха, что тебя осудят или неправильно поймут.
+
+Он помнит тебя. Не только последнее сообщение — а то, что ты рассказывал месяц назад: о работе, о людях рядом, о том, что тебя беспокоит. И когда ты снова открываешь приложение, он уже в контексте.
+
+Всё, что ты говоришь, зашифровано ключом, который есть только у тебя. Даже мы не можем прочитать твою переписку.
 
 ---
 
-## Быстрый старт
+## Что умеет Eon
 
-### 1. Клонировать репозиторий
+- **Помнит твою историю** — сообщения, дневные и недельные сводки, семантический поиск по прошлому
+- **Голос и текст** — диктуй или пиши, как удобно
+- **5 стилей общения** — слушатель, друг, наставник, зеркало, полемик
+- **Шифрование end-to-end** — AES-256-GCM, индивидуальный ключ на каждого пользователя
+- **Тёмная и светлая тема**, несколько фонов чата
+
+---
+
+## Для разработчиков
+
+### Быстрый старт
 
 ```bash
 git clone https://github.com/SerMichbboy/Eon-human-support.git
 cd Eon-human-support
-```
-
-### 2. Настроить окружение
-
-```bash
 cp .env.example .env
 ```
 
-Открой `.env` и заполни минимально необходимые значения:
+Минимальный `.env`:
 
 ```env
-APP_SECRET_KEY=любая-случайная-строка-32-символа
 MASTER_ENCRYPTION_KEY=$(openssl rand -base64 32)
-
-# Для AI-ответов. Если ключа нет — поставь "placeholder" (включится stub-режим)
-ANTHROPIC_API_KEY=sk-ant-...
-
-# Для распознавания голоса (можно оставить пустым, если не нужен голос)
-OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=sk-or-vv-...   # ключ vsegpt.ru
+VSEGPT_BASE_URL=https://api.vsegpt.ru/v1
+MODE=test
 ```
 
-### 3. Запустить бэкенд
+Запуск бэкенда:
 
 ```bash
 docker compose up -d
 ```
 
-Это поднимет PostgreSQL, Redis, применит миграции и запустит API + воркер.
-API доступен на `http://localhost:8000`, документация: `http://localhost:8000/docs`
+API: `http://localhost:8000` · Документация: `http://localhost:8000/docs`
 
-### 4. Запустить мобильное приложение
+Запуск мобильного приложения:
 
 ```bash
 cd eon-mobile
 npm install
 
-# Узнай локальный IP своей машины (ifconfig / ipconfig)
+# Узнай IP своей машины (ifconfig / ipconfig)
 echo "EXPO_PUBLIC_API_URL=http://<твой-IP>:8000" > .env
 
 npx expo start --clear
 ```
 
-### 5. Открыть на телефоне
-
-Установи **Expo Go** (iOS / Android) и отсканируй QR-код из терминала.
+Установи **Expo Go** на телефон и отсканируй QR.
 
 ---
 
-## Концепция
+### Стек
 
-- Общение через текст или голос
-- Компаньон помнит разговоры и жизненный контекст
-- Многоуровневая память: сообщения (7 дней) → дневные сводки (8–30 дней) → недельные сводки (31–180 дней) + семантический поиск через pgvector
-- Все сообщения зашифрованы индивидуальным ключом пользователя (AES-256-GCM)
-- Кастомизация: имя компаньона, фон чата (8 пресетов с паттернами)
+**Бэкенд** — Python 3.12, FastAPI, PostgreSQL + pgvector, Redis, SQLAlchemy async, Alembic, Dishka, FastStream, TaskIQ
 
----
+**Фронтенд** — React Native, Expo SDK 54, React Navigation, TanStack Query, Zustand, Feature-Sliced Design
 
-## Стек
-
-**Бэкенд**
-- Python 3.12, FastAPI
-- PostgreSQL + pgvector (`ankane/pgvector`)
-- Redis (стриминг событий + очередь задач)
-- SQLAlchemy async + Alembic
-- Dishka (dependency injection)
-- FastStream (Redis-брокер)
-- TaskIQ (фоновые задачи: сводки памяти)
-- Anthropic Claude API (stub-режим при `ANTHROPIC_API_KEY=placeholder`)
-- OpenAI Whisper (STT) — заблокирован в РФ
-- ElevenLabs (TTS, опционально)
-
-**Фронтенд**
-- React Native / Expo SDK 54
-- React Navigation (native stack)
-- TanStack Query + Zustand
-- Feature-Sliced Design
+**AI** — vsegpt.ru (OpenAI-совместимый прокси, работает из России). Текущая модель: `openai/gpt-4.1-mini` (MODE=test). Для продакшна: `anthropic/claude-sonnet-4-6`.
 
 ---
 
-## Архитектура
+### Архитектура
 
 ```
 src/
 ├── domain/          # Сущности + интерфейсы репозиториев
-│   ├── user/
-│   ├── companion/
-│   ├── profile/
-│   └── memory/
 ├── application/     # Use cases (бизнес-логика)
-│   ├── auth/
-│   ├── chat/
-│   ├── memory/
-│   ├── onboarding/
-│   └── voice/
-├── infrastructure/  # БД, Claude, крипто, STT/TTS, стримы, задачи
+├── infrastructure/  # БД, AI, крипто, STT/TTS, очереди
 └── presentation/
     ├── api/         # REST-роутеры
     └── ws/          # WebSocket /ws/chat
 
 eon-mobile/src/
-├── core/            # Навигация, провайдеры, точка входа
-├── features/        # auth, chat, companion, onboarding, profile, voice
-└── shared/          # API-клиент, сторы, тема, утилиты
+├── core/            # Навигация, провайдеры
+├── features/        # auth, chat, onboarding, profile, voice
+└── shared/          # API-клиент, сторы, тема
 ```
 
 ---
 
-## API
+### API
 
 | Метод | Путь | Описание |
 |-------|------|----------|
 | POST | `/api/v1/auth/register` | Регистрация |
-| POST | `/api/v1/auth/login` | Вход, получение токенов |
-| POST | `/api/v1/auth/refresh` | Обновление access-токена |
+| POST | `/api/v1/auth/login` | Вход |
+| POST | `/api/v1/auth/refresh` | Обновление токена |
 | GET | `/api/v1/companion/` | Имя компаньона |
-| PATCH | `/api/v1/companion/name` | Переименовать компаньона |
-| GET | `/api/v1/messages/` | История чата (с пагинацией) |
-| POST | `/api/v1/onboarding/step` | Сохранить шаг онбординга |
-| POST | `/api/v1/onboarding/voice-step` | Голосовой шаг онбординга |
-| GET | `/api/v1/profile/` | Получить профиль |
+| PATCH | `/api/v1/companion/name` | Переименовать |
+| GET | `/api/v1/messages/` | История чата |
+| POST | `/api/v1/onboarding/step` | Шаг онбординга |
+| GET | `/api/v1/profile/` | Профиль |
 | PATCH | `/api/v1/profile/` | Обновить профиль |
-| POST | `/api/v1/voice/transcribe` | Речь → текст |
-| POST | `/api/v1/voice/synthesize` | Текст → речь |
-| WS | `/ws/chat?token=<access_token>` | Чат |
+| WS | `/ws/chat?token=<token>` | Чат |
 
-### История сообщений — пагинация
-
-```
-GET /api/v1/messages/?limit=30
-GET /api/v1/messages/?limit=30&before_id=<uuid>   # следующая страница
-```
-
-Сообщения хранятся зашифрованными, эндпоинт расшифровывает на лету.
-
-### WebSocket
-
-Отправить: `{ "text": "сообщение" }`  
-Получить: `{ "reply": "ответ" }` или `{ "error": "текст" }`
+История сообщений с пагинацией: `GET /api/v1/messages/?limit=30&before_id=<uuid>`
 
 ---
 
-## Переменные окружения
+### Переменные окружения
 
 ```env
-APP_ENV=development
-APP_SECRET_KEY=<32+ символа>
-
 DATABASE_URL=postgresql+asyncpg://eon:eon@postgres:5432/eon
-DATABASE_URL_SYNC=postgresql://eon:eon@postgres:5432/eon
 REDIS_URL=redis://redis:6379/0
-
 MASTER_ENCRYPTION_KEY=<base64 от 32 байт>
-
+OPENAI_API_KEY=<ключ vsegpt>
+VSEGPT_BASE_URL=https://api.vsegpt.ru/v1
+MODE=test   # test | production
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES=15
 JWT_REFRESH_TOKEN_EXPIRE_DAYS=30
-
-ANTHROPIC_API_KEY=<ключ или "placeholder">
-OPENAI_API_KEY=<ключ>
-ELEVENLABS_API_KEY=
-ELEVENLABS_VOICE_ID=
 ```
 
 ---
 
-## Известные ограничения
+### Память
 
-- **STT (голос → текст)** не работает в России — OpenAI возвращает 403. Онбординг переключается на текстовый ввод автоматически.
-- **Stub-режим Claude**: `ANTHROPIC_API_KEY=placeholder` → бэкенд возвращает фиксированные ответы без обращения к API.
+Многоуровневая система сжатия истории:
+
+- **0–7 дней** — сырые сообщения
+- **8–30 дней** — дневные сводки (TaskIQ, ночная задача)
+- **31–180 дней** — недельные сводки
+- **Семантический поиск** — pgvector embeddings для поиска релевантного контекста
+
+Всё зашифровано индивидуальным ключом пользователя.
+
+---
+
+### Известные ограничения
+
+- **MODE=test** — минимальный промпт, 4 сообщения в контексте, дешёвая модель. Переключи в `production` перед запуском реальным пользователям.
+- Голосовой ввод работает только через vsegpt (нативный Whisper API заблокирован в РФ).
