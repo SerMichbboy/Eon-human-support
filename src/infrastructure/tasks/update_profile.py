@@ -14,6 +14,7 @@ async def update_profile_from_dialogue_task(companion_id: str, user_id: str, day
     from src.infrastructure.crypto.aes import CryptoService
     from src.infrastructure.claude.client import ClaudeClient
     from src.infrastructure.db.repositories.memory import DailySummaryRepository
+    from src.infrastructure.crypto.context import UserRawKey
     from src.infrastructure.db.repositories.profile import UserProfileRepository
     from src.infrastructure.db.repositories.user import UserKeyRepository
     from src.application.onboarding.save_profile_step import ProfileStepData, SaveProfileStep
@@ -27,12 +28,14 @@ async def update_profile_from_dialogue_task(companion_id: str, user_id: str, day
     async with session_factory() as session:
         key_repo = UserKeyRepository(session)
         daily_repo = DailySummaryRepository(session)
-        profile_repo = UserProfileRepository(session)
 
         user_key = await key_repo.get_by_id(UUID(user_id))
         if not user_key:
             return
-        raw_key = crypto.decrypt_user_key(user_key.encrypted_key)
+        try:
+            raw_key = crypto.decrypt_user_key(user_key.encrypted_key)
+        except Exception:
+            return  # E2E keys cannot be decrypted server-side
 
         summary = await daily_repo.get_by_companion_and_date(
             UUID(companion_id), date.fromisoformat(day)
@@ -52,6 +55,7 @@ async def update_profile_from_dialogue_task(companion_id: str, user_id: str, day
             companion_preferences=raw.get("companion_preferences"),
         )
 
+        profile_repo = UserProfileRepository(session, crypto, UserRawKey(raw_key))
         save = SaveProfileStep(profile_repo)
         await save.execute(UUID(user_id), step_data)
         await session.commit()

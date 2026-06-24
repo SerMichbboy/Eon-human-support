@@ -34,7 +34,12 @@ async def generate_daily_summary_task(companion_id: str, user_id: str, day: str)
         user_key = await key_repo.get_by_id(UUID(user_id))
         if not user_key:
             return
-        raw_key = crypto.decrypt_user_key(user_key.encrypted_key)
+        try:
+            raw_key = crypto.decrypt_user_key(user_key.encrypted_key)
+        except Exception:
+            # E2E keys are client-encrypted; background tasks cannot decrypt them.
+            # Daily summary compression is skipped for E2E users.
+            return
 
         use_case = GenerateDailySummary(message_repo, daily_repo, claude, crypto)
         await use_case.execute(

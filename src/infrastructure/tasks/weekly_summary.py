@@ -31,7 +31,10 @@ async def generate_weekly_summary_task(companion_id: str, user_id: str, week_sta
         user_key = await key_repo.get_by_id(UUID(user_id))
         if not user_key:
             return
-        raw_key = crypto.decrypt_user_key(user_key.encrypted_key)
+        try:
+            raw_key = crypto.decrypt_user_key(user_key.encrypted_key)
+        except Exception:
+            return  # E2E keys cannot be decrypted server-side
 
         use_case = GenerateWeeklySummary(daily_repo, weekly_repo, claude, crypto)
         await use_case.execute(
