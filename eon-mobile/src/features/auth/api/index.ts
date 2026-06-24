@@ -6,6 +6,7 @@ export interface TokenResponse {
   token_type: string;
   key_salt?: string;
   encrypted_key?: string;
+  pbkdf2_c?: number;
 }
 
 export interface RegisterResponse {
@@ -14,14 +15,14 @@ export interface RegisterResponse {
 }
 
 export const authApi = {
-  registerEmail: (email: string, password: string, keySalt: string, encryptedKey: string) =>
+  registerEmail: (email: string, password: string, keySalt: string, encryptedKey: string, pbkdf2C: number) =>
     apiClient.post<RegisterResponse>('/auth/register/email', {
-      email, password, key_salt: keySalt, encrypted_key: encryptedKey,
+      email, password, key_salt: keySalt, encrypted_key: encryptedKey, pbkdf2_c: pbkdf2C,
     }),
 
-  registerPhone: (phone: string, password: string, keySalt: string, encryptedKey: string) =>
+  registerPhone: (phone: string, password: string, keySalt: string, encryptedKey: string, pbkdf2C: number) =>
     apiClient.post<RegisterResponse>('/auth/register/phone', {
-      phone, password, key_salt: keySalt, encrypted_key: encryptedKey,
+      phone, password, key_salt: keySalt, encrypted_key: encryptedKey, pbkdf2_c: pbkdf2C,
     }),
 
   loginEmail: (email: string, password: string) =>

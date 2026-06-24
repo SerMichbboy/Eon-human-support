@@ -2,6 +2,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import React, { useEffect, useRef, useState } from 'react';
 import { profileApi } from '@/features/profile/api';
 import { useAuthStore } from '@/shared/store/auth';
+import { useSettingsStore } from '@/shared/store/settings';
 import { SplashScreen } from '../components/SplashScreen';
 import { AppNavigator, AppStackParams } from './AppNavigator';
 import { AuthNavigator } from './AuthNavigator';
@@ -11,12 +12,13 @@ export function RootNavigator() {
   const [splashDone, setSplashDone] = useState(false);
   const [initialRoute, setInitialRoute] = useState<keyof AppStackParams>('Onboarding');
   const { isAuthenticated, hydrate } = useAuthStore();
+  const hydrateSettings = useSettingsStore((s) => s.hydrate);
   const readyTimeRef = useRef<number>(0);
 
   useEffect(() => {
     const minDelay = new Promise<void>((res) => setTimeout(res, 2000));
 
-    const load = hydrate().then(async () => {
+    const load = Promise.all([hydrate(), hydrateSettings()]).then(async () => {
       const authed = useAuthStore.getState().isAuthenticated;
       if (authed) {
         try {

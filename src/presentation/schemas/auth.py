@@ -7,6 +7,7 @@ class RegisterEmailRequest(BaseModel):
     password: str
     key_salt: str       # base64-encoded 16-byte PBKDF2 salt (client-generated)
     encrypted_key: str  # base64-encoded AES-GCM(raw_key, PBKDF2(password, salt))
+    pbkdf2_c: int = 10_000  # PBKDF2 iteration count used by the client
 
     @field_validator("password")
     @classmethod
@@ -21,6 +22,7 @@ class RegisterPhoneRequest(BaseModel):
     password: str
     key_salt: str
     encrypted_key: str
+    pbkdf2_c: int = 10_000
 
     @field_validator("phone")
     @classmethod
@@ -55,8 +57,9 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
-    key_salt: str | None = None      # returned on login so client can re-derive key
-    encrypted_key: str | None = None  # client-encrypted key blob
+    key_salt: str | None = None
+    encrypted_key: str | None = None
+    pbkdf2_c: int | None = None  # iteration count used at registration
 
 
 class RegisterResponse(BaseModel):

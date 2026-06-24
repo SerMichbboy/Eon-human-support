@@ -22,6 +22,7 @@ class TokenPair:
     token_type: str = "bearer"
     key_salt: str | None = field(default=None)
     encrypted_key: str | None = field(default=None)
+    pbkdf2_c: int | None = field(default=None)
 
 
 class LoginByEmail:
@@ -40,6 +41,7 @@ class LoginByEmail:
             refresh_token=create_refresh_token(user.id, self._settings),
             key_salt=base64.b64encode(user_key.salt).decode() if user_key else None,
             encrypted_key=base64.b64encode(user_key.encrypted_key).decode() if user_key else None,
+            pbkdf2_c=user_key.pbkdf2_c if user_key else None,
         )
 
 
@@ -59,6 +61,7 @@ class LoginByPhone:
             refresh_token=create_refresh_token(user.id, self._settings),
             key_salt=base64.b64encode(user_key.salt).decode() if user_key else None,
             encrypted_key=base64.b64encode(user_key.encrypted_key).decode() if user_key else None,
+            pbkdf2_c=user_key.pbkdf2_c if user_key else None,
         )
 
 

@@ -7,6 +7,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Integer,
     LargeBinary,
     String,
     Text,
@@ -26,6 +27,7 @@ class UserKeyModel(Base):
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
     encrypted_key: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     salt: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    pbkdf2_c: Mapped[int] = mapped_column(Integer, nullable=False, default=100_000)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     user: Mapped["UserModel"] = relationship(back_populates="encryption_key")

@@ -30,7 +30,7 @@ async def register_email(
 ):
     try:
         result = await RegisterByEmail(user_repo, key_repo, companion_repo, profile_repo).execute(
-            body.email, body.password, body.key_salt, body.encrypted_key
+            body.email, body.password, body.key_salt, body.encrypted_key, body.pbkdf2_c
         )
         await session.commit()
     except EmailAlreadyExistsError:
@@ -50,7 +50,7 @@ async def register_phone(
 ):
     try:
         result = await RegisterByPhone(user_repo, key_repo, companion_repo, profile_repo).execute(
-            body.phone, body.password, body.key_salt, body.encrypted_key
+            body.phone, body.password, body.key_salt, body.encrypted_key, body.pbkdf2_c
         )
         await session.commit()
     except PhoneAlreadyExistsError:
@@ -75,6 +75,7 @@ async def login_email(
         refresh_token=tokens.refresh_token,
         key_salt=tokens.key_salt,
         encrypted_key=tokens.encrypted_key,
+        pbkdf2_c=tokens.pbkdf2_c,
     )
 
 
@@ -95,6 +96,7 @@ async def login_phone(
         refresh_token=tokens.refresh_token,
         key_salt=tokens.key_salt,
         encrypted_key=tokens.encrypted_key,
+        pbkdf2_c=tokens.pbkdf2_c,
     )
 
 

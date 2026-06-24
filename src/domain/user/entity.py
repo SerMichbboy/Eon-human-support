@@ -8,11 +8,12 @@ class UserKey:
     id: UUID
     encrypted_key: bytes  # client-encrypted: AES-GCM(raw_key, PBKDF2(password, salt))
     salt: bytes           # PBKDF2 salt, 16 bytes
+    pbkdf2_c: int         # PBKDF2 iteration count used at registration
     created_at: datetime
 
     @staticmethod
-    def create(encrypted_key: bytes, salt: bytes) -> "UserKey":
-        return UserKey(id=uuid4(), encrypted_key=encrypted_key, salt=salt, created_at=datetime.utcnow())
+    def create(encrypted_key: bytes, salt: bytes, pbkdf2_c: int = 10_000) -> "UserKey":
+        return UserKey(id=uuid4(), encrypted_key=encrypted_key, salt=salt, pbkdf2_c=pbkdf2_c, created_at=datetime.utcnow())
 
 
 @dataclass

@@ -9,12 +9,12 @@ async function handleLoginResponse(
   setTokens: Function,
 ) {
   let rawKeyB64: string | undefined;
-  if (data.key_salt && data.encrypted_key) {
+  if (data.key_salt && data.encrypted_key && data.pbkdf2_c) {
     try {
-      const rawKey = await unlockE2EKey(password, data.key_salt, data.encrypted_key);
+      const rawKey = await unlockE2EKey(password, data.key_salt, data.encrypted_key, data.pbkdf2_c);
       rawKeyB64 = rawKeyToHeader(rawKey);
     } catch {
-      // Key derivation failed (wrong password) — login will still succeed for now
+      // Key derivation failed — messages will show encrypted until user re-registers
     }
   }
   await setTokens(data.access_token, data.refresh_token, rawKeyB64);

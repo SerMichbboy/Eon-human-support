@@ -36,13 +36,13 @@ class RegisterByEmail:
         self._companions = companion_repo
         self._profiles = profile_repo
 
-    async def execute(self, email: str, password: str, key_salt: str, encrypted_key: str) -> RegisterResult:
+    async def execute(self, email: str, password: str, key_salt: str, encrypted_key: str, pbkdf2_c: int = 10_000) -> RegisterResult:
         if await self._users.get_by_email(email):
             raise EmailAlreadyExistsError
 
         salt_bytes = base64.b64decode(key_salt)
         enc_key_bytes = base64.b64decode(encrypted_key)
-        user_key = UserKey.create(encrypted_key=enc_key_bytes, salt=salt_bytes)
+        user_key = UserKey.create(encrypted_key=enc_key_bytes, salt=salt_bytes, pbkdf2_c=pbkdf2_c)
         await self._keys.save(user_key)
 
         user = User.create(
@@ -76,13 +76,13 @@ class RegisterByPhone:
         self._companions = companion_repo
         self._profiles = profile_repo
 
-    async def execute(self, phone: str, password: str, key_salt: str, encrypted_key: str) -> RegisterResult:
+    async def execute(self, phone: str, password: str, key_salt: str, encrypted_key: str, pbkdf2_c: int = 10_000) -> RegisterResult:
         if await self._users.get_by_phone(phone):
             raise PhoneAlreadyExistsError
 
         salt_bytes = base64.b64decode(key_salt)
         enc_key_bytes = base64.b64decode(encrypted_key)
-        user_key = UserKey.create(encrypted_key=enc_key_bytes, salt=salt_bytes)
+        user_key = UserKey.create(encrypted_key=enc_key_bytes, salt=salt_bytes, pbkdf2_c=pbkdf2_c)
         await self._keys.save(user_key)
 
         user = User.create(

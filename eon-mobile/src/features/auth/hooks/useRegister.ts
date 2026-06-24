@@ -5,17 +5,17 @@ import { useAuthStore } from '@/shared/store/auth';
 import { authApi } from '../api';
 
 async function doRegisterEmail(email: string, password: string, setTokens: Function) {
-  const { rawKey, salt, encryptedKey } = await generateE2EKeyPair(password);
+  const { rawKey, salt, encryptedKey, pbkdf2C } = await generateE2EKeyPair(password);
   const rawKeyB64 = rawKeyToHeader(rawKey);
-  await authApi.registerEmail(email, password, salt, encryptedKey);
+  await authApi.registerEmail(email, password, salt, encryptedKey, pbkdf2C);
   const { data } = await authApi.loginEmail(email, password);
   await setTokens(data.access_token, data.refresh_token, rawKeyB64);
 }
 
 async function doRegisterPhone(phone: string, password: string, setTokens: Function) {
-  const { rawKey, salt, encryptedKey } = await generateE2EKeyPair(password);
+  const { rawKey, salt, encryptedKey, pbkdf2C } = await generateE2EKeyPair(password);
   const rawKeyB64 = rawKeyToHeader(rawKey);
-  await authApi.registerPhone(phone, password, salt, encryptedKey);
+  await authApi.registerPhone(phone, password, salt, encryptedKey, pbkdf2C);
   const { data } = await authApi.loginPhone(phone, password);
   await setTokens(data.access_token, data.refresh_token, rawKeyB64);
 }
