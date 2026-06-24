@@ -1,27 +1,73 @@
 import { useMutation } from '@tanstack/react-query';
+import { Alert } from 'react-native';
+import { generateE2EKeyPair, rawKeyToHeader, unlockE2EKey } from '@/shared/crypto/e2e';
 import { useAuthStore } from '@/shared/store/auth';
 import { authApi } from '../api';
 
+async function doRegisterEmail(email: string, password: string, setTokens: Function) {
+  const { rawKey, salt, encryptedKey } = generateE2EKeyPair(password);
+  const rawKeyB64 = rawKeyToHeader(rawKey);
+
+  await authApi.registerEmail(email, password, salt, encryptedKey);
+  const { data } = await authApi.loginEmail(email, password);
+
+  // Verify we can unlock the key returned by server (sanity check)
+  if (data.key_salt && data.encrypted_key) {
+    unlockE2EKey(password, data.key_salt, data.encrypted_key);
+  }
+
+  await setTokens(data.access_token, data.refresh_token, rawKeyB64);
+}
+
+async function doRegisterPhone(phone: string, password: string, setTokens: Function) {
+  const { rawKey, salt, encryptedKey } = generateE2EKeyPair(password);
+  const rawKeyB64 = rawKeyToHeader(rawKey);
+
+  await authApi.registerPhone(phone, password, salt, encryptedKey);
+  const { data } = await authApi.loginPhone(phone, password);
+
+  if (data.key_salt && data.encrypted_key) {
+    unlockE2EKey(password, data.key_salt, data.encrypted_key);
+  }
+
+  await setTokens(data.access_token, data.refresh_token, rawKeyB64);
+}
+
+function showPasswordWarning(onConfirm: () => void) {
+  Alert.alert(
+    '🔐 Запомни пароль',
+    'Твои данные зашифрованы паролем. Если забудешь его — восстановить данные будет невозможно.\n\nЗапиши пароль в надёжном месте — на бумаге или в менеджере паролей.',
+    [
+      { text: 'Отмена', style: 'cancel' },
+      { text: 'Запомнил, продолжить', style: 'default', onPress: onConfirm },
+    ],
+  );
+}
+
 export function useRegisterEmail() {
   const setTokens = useAuthStore((s) => s.setTokens);
-  return useMutation({
+  const mutation = useMutation({
     mutationFn: ({ email, password }: { email: string; password: string }) =>
-      authApi.registerEmail(email, password),
-    onSuccess: async (_, vars) => {
-      const { data } = await authApi.loginEmail(vars.email, vars.password);
-      await setTokens(data.access_token, data.refresh_token);
-    },
+      doRegisterEmail(email, password, setTokens),
   });
+
+  return {
+    ...mutation,
+    mutate: (vars: { email: string; password: string }) =>
+      showPasswordWarning(() => mutation.mutate(vars)),
+  };
 }
 
 export function useRegisterPhone() {
   const setTokens = useAuthStore((s) => s.setTokens);
-  return useMutation({
+  const mutation = useMutation({
     mutationFn: ({ phone, password }: { phone: string; password: string }) =>
-      authApi.registerPhone(phone, password),
-    onSuccess: async (_, vars) => {
-      const { data } = await authApi.loginPhone(vars.phone, vars.password);
-      await setTokens(data.access_token, data.refresh_token);
-    },
+      doRegisterPhone(phone, password, setTokens),
   });
+
+  return {
+    ...mutation,
+    mutate: (vars: { phone: string; password: string }) =>
+      showPasswordWarning(() => mutation.mutate(vars)),
+  };
 }

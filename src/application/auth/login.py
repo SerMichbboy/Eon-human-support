@@ -1,8 +1,9 @@
-from dataclasses import dataclass
+import base64
+from dataclasses import dataclass, field
 from uuid import UUID
 
 from src.application.auth.tokens import create_access_token, create_refresh_token, decode_token, verify_password
-from src.domain.user.repository import IUserRepository
+from src.domain.user.repository import IUserKeyRepository, IUserRepository
 from src.main.settings import Settings
 
 
@@ -19,35 +20,45 @@ class TokenPair:
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    key_salt: str | None = field(default=None)
+    encrypted_key: str | None = field(default=None)
 
 
 class LoginByEmail:
-    def __init__(self, user_repo: IUserRepository, settings: Settings) -> None:
+    def __init__(self, user_repo: IUserRepository, key_repo: IUserKeyRepository, settings: Settings) -> None:
         self._users = user_repo
+        self._keys = key_repo
         self._settings = settings
 
     async def execute(self, email: str, password: str) -> TokenPair:
         user = await self._users.get_by_email(email)
         if not user or not verify_password(password, user.password_hash):
             raise InvalidCredentialsError
+        user_key = await self._keys.get_by_user_id(user.id)
         return TokenPair(
             access_token=create_access_token(user.id, self._settings),
             refresh_token=create_refresh_token(user.id, self._settings),
+            key_salt=base64.b64encode(user_key.salt).decode() if user_key else None,
+            encrypted_key=base64.b64encode(user_key.encrypted_key).decode() if user_key else None,
         )
 
 
 class LoginByPhone:
-    def __init__(self, user_repo: IUserRepository, settings: Settings) -> None:
+    def __init__(self, user_repo: IUserRepository, key_repo: IUserKeyRepository, settings: Settings) -> None:
         self._users = user_repo
+        self._keys = key_repo
         self._settings = settings
 
     async def execute(self, phone: str, password: str) -> TokenPair:
         user = await self._users.get_by_phone(phone)
         if not user or not verify_password(password, user.password_hash):
             raise InvalidCredentialsError
+        user_key = await self._keys.get_by_user_id(user.id)
         return TokenPair(
             access_token=create_access_token(user.id, self._settings),
             refresh_token=create_refresh_token(user.id, self._settings),
+            key_salt=base64.b64encode(user_key.salt).decode() if user_key else None,
+            encrypted_key=base64.b64encode(user_key.encrypted_key).decode() if user_key else None,
         )
 
 

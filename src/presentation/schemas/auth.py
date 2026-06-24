@@ -5,6 +5,8 @@ import re
 class RegisterEmailRequest(BaseModel):
     email: EmailStr
     password: str
+    key_salt: str       # base64-encoded 16-byte PBKDF2 salt (client-generated)
+    encrypted_key: str  # base64-encoded AES-GCM(raw_key, PBKDF2(password, salt))
 
     @field_validator("password")
     @classmethod
@@ -17,6 +19,8 @@ class RegisterEmailRequest(BaseModel):
 class RegisterPhoneRequest(BaseModel):
     phone: str
     password: str
+    key_salt: str
+    encrypted_key: str
 
     @field_validator("phone")
     @classmethod
@@ -51,6 +55,8 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    key_salt: str | None = None      # returned on login so client can re-derive key
+    encrypted_key: str | None = None  # client-encrypted key blob
 
 
 class RegisterResponse(BaseModel):

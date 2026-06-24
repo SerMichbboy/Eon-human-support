@@ -11,6 +11,8 @@ export const apiClient = axios.create({
 apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   const token = await SecureStore.getItemAsync('access_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  const rawKey = await SecureStore.getItemAsync('raw_key');
+  if (rawKey) config.headers['X-User-Key'] = rawKey;
   return config;
 });
 

@@ -7,8 +7,8 @@ from pydantic import BaseModel
 
 from src.domain.companion.repository import ICompanionRepository
 from src.domain.memory.repository import IMessageRepository
-from src.domain.user.repository import IUserKeyRepository
 from src.infrastructure.crypto.aes import CryptoService
+from src.infrastructure.crypto.context import UserRawKey
 from src.presentation.deps import get_current_user_id
 
 router = APIRouter()
@@ -26,8 +26,8 @@ class MessageOut(BaseModel):
 async def get_recent_messages(
     companion_repo: Annotated[ICompanionRepository, FromDishka()],
     message_repo: Annotated[IMessageRepository, FromDishka()],
-    key_repo: Annotated[IUserKeyRepository, FromDishka()],
     crypto: Annotated[CryptoService, FromDishka()],
+    user_raw_key: Annotated[UserRawKey, FromDishka()],
     user_id: UUID = Depends(get_current_user_id),
     limit: int = Query(default=30, le=100),
     before_id: str | None = Query(default=None),
@@ -41,11 +41,7 @@ async def get_recent_messages(
     if not messages:
         return []
 
-    raw_key = None
-    user_key = await key_repo.get_by_user_id(user_id)
-    if user_key:
-        raw_key = crypto.decrypt_user_key(user_key.encrypted_key)
-
+    raw_key = user_raw_key.value
     result = []
     for m in messages:
         content = m.content

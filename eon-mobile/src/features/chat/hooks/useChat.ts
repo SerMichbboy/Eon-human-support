@@ -42,11 +42,16 @@ export function useChat() {
   const connect = useCallback(async () => {
     const token = await SecureStore.getItemAsync('access_token');
     if (!token) return;
+    const rawKey = await SecureStore.getItemAsync('raw_key');
 
     const socket = new WebSocket(`${WS_URL}/ws/chat?token=${token}`);
     ws.current = socket;
 
-    socket.onopen = () => setIsConnected(true);
+    socket.onopen = () => {
+      // Send E2E key as first message before any chat messages
+      socket.send(JSON.stringify({ key: rawKey ?? '' }));
+      setIsConnected(true);
+    };
 
     socket.onmessage = (event) => {
       setIsTyping(false);

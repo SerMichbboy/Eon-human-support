@@ -1,6 +1,8 @@
+import base64
 from collections.abc import AsyncIterable
 
 from dishka import Provider, Scope, from_context, make_async_container, provide
+from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.domain.companion.repository import ICompanionRepository
@@ -14,6 +16,7 @@ from src.domain.profile.repository import IUserProfileRepository
 from src.domain.user.repository import IUserKeyRepository, IUserRepository
 from src.infrastructure.claude.client import ClaudeClient
 from src.infrastructure.crypto.aes import CryptoService
+from src.infrastructure.crypto.context import UserRawKey
 from src.infrastructure.db.engine import build_session_factory
 from src.infrastructure.db.repositories.companion import CompanionRepository
 from src.infrastructure.db.repositories.memory import (
@@ -31,6 +34,17 @@ from src.main.settings import Settings
 
 class AppProvider(Provider):
     settings = from_context(provides=Settings, scope=Scope.APP)
+    request = from_context(provides=Request, scope=Scope.REQUEST)
+
+    @provide(scope=Scope.REQUEST)
+    def user_raw_key(self, request: Request) -> UserRawKey:
+        header = request.headers.get("x-user-key")
+        if header:
+            try:
+                return UserRawKey(base64.b64decode(header))
+            except Exception:
+                pass
+        return UserRawKey(None)
 
     @provide(scope=Scope.APP)
     def crypto(self, settings: Settings) -> CryptoService:

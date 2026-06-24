@@ -1,3 +1,4 @@
+import base64
 from dataclasses import dataclass
 
 from src.application.auth.tokens import hash_password
@@ -7,7 +8,6 @@ from src.domain.profile.entity import UserProfile
 from src.domain.profile.repository import IUserProfileRepository
 from src.domain.user.entity import User, UserKey
 from src.domain.user.repository import IUserKeyRepository, IUserRepository
-from src.infrastructure.crypto.aes import CryptoService
 
 
 class EmailAlreadyExistsError(Exception):
@@ -30,21 +30,19 @@ class RegisterByEmail:
         key_repo: IUserKeyRepository,
         companion_repo: ICompanionRepository,
         profile_repo: IUserProfileRepository,
-        crypto: CryptoService,
     ) -> None:
         self._users = user_repo
         self._keys = key_repo
         self._companions = companion_repo
         self._profiles = profile_repo
-        self._crypto = crypto
 
-    async def execute(self, email: str, password: str) -> RegisterResult:
+    async def execute(self, email: str, password: str, key_salt: str, encrypted_key: str) -> RegisterResult:
         if await self._users.get_by_email(email):
             raise EmailAlreadyExistsError
 
-        raw_key = self._crypto.generate_user_key()
-        encrypted_key = self._crypto.encrypt_user_key(raw_key)
-        user_key = UserKey.create(encrypted_key)
+        salt_bytes = base64.b64decode(key_salt)
+        enc_key_bytes = base64.b64decode(encrypted_key)
+        user_key = UserKey.create(encrypted_key=enc_key_bytes, salt=salt_bytes)
         await self._keys.save(user_key)
 
         user = User.create(
@@ -72,21 +70,19 @@ class RegisterByPhone:
         key_repo: IUserKeyRepository,
         companion_repo: ICompanionRepository,
         profile_repo: IUserProfileRepository,
-        crypto: CryptoService,
     ) -> None:
         self._users = user_repo
         self._keys = key_repo
         self._companions = companion_repo
         self._profiles = profile_repo
-        self._crypto = crypto
 
-    async def execute(self, phone: str, password: str) -> RegisterResult:
+    async def execute(self, phone: str, password: str, key_salt: str, encrypted_key: str) -> RegisterResult:
         if await self._users.get_by_phone(phone):
             raise PhoneAlreadyExistsError
 
-        raw_key = self._crypto.generate_user_key()
-        encrypted_key = self._crypto.encrypt_user_key(raw_key)
-        user_key = UserKey.create(encrypted_key)
+        salt_bytes = base64.b64decode(key_salt)
+        enc_key_bytes = base64.b64decode(encrypted_key)
+        user_key = UserKey.create(encrypted_key=enc_key_bytes, salt=salt_bytes)
         await self._keys.save(user_key)
 
         user = User.create(

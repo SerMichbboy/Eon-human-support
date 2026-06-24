@@ -19,8 +19,8 @@ from src.domain.profile.entity import (
     UserProfile,
 )
 from src.domain.profile.repository import IUserProfileRepository
-from src.domain.user.repository import IUserKeyRepository
 from src.infrastructure.crypto.aes import CryptoService
+from src.infrastructure.crypto.context import UserRawKey
 from src.infrastructure.db.models import UserProfileModel
 
 
@@ -29,15 +29,11 @@ class UserProfileRepository(IUserProfileRepository):
         self,
         session: AsyncSession,
         crypto: CryptoService,
-        key_repo: IUserKeyRepository,
+        user_raw_key: UserRawKey,
     ) -> None:
         self._session = session
         self._crypto = crypto
-        self._key_repo = key_repo
-
-    async def _raw_key(self, user_id: UUID) -> bytes | None:
-        user_key = await self._key_repo.get_by_user_id(user_id)
-        return self._crypto.decrypt_user_key(user_key.encrypted_key) if user_key else None
+        self._raw_key = user_raw_key.value
 
     async def get_by_user_id(self, user_id: UUID) -> UserProfile | None:
         result = await self._session.execute(
@@ -46,11 +42,10 @@ class UserProfileRepository(IUserProfileRepository):
         model = result.scalar_one_or_none()
         if not model:
             return None
-        raw_key = await self._raw_key(user_id)
-        return _to_entity(model, self._crypto, raw_key)
+        return _to_entity(model, self._crypto, self._raw_key)
 
     async def save(self, profile: UserProfile) -> None:
-        raw_key = await self._raw_key(profile.user_id)
+        raw_key = self._raw_key
         model = await self._session.get(UserProfileModel, profile.id)
         if model is None:
             model = UserProfileModel()
