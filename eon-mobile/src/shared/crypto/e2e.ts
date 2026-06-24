@@ -1,7 +1,7 @@
 // @ts-ignore — @noble packages use .js exports; Metro resolves them at runtime
 import { pbkdf2 } from '@noble/hashes/pbkdf2.js';
 // @ts-ignore
-import { sha256 } from '@noble/hashes/sha256.js';
+import { sha256 } from '@noble/hashes/sha2.js';
 // @ts-ignore
 import { gcm } from '@noble/ciphers/aes.js';
 
