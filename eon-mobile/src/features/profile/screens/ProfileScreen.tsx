@@ -2,7 +2,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppStackParams } from '@/core/navigation/AppNavigator';
 import { companionApi } from '@/features/companion/api';
@@ -26,27 +26,27 @@ const APP_FEATURES = [
   {
     icon: '🔐',
     title: 'Шифрование',
-    desc: 'Твои слова зашифрованы ключом, который есть только у тебя.',
+    desc: 'Данные зашифрованы твоим ключом — мы не можем их прочитать.',
   },
   {
     icon: '🧠',
     title: 'Память',
-    desc: 'Помнит всё, что ты рассказывал. Замечает детали.',
+    desc: 'Помнит историю разговора между сессиями.',
   },
   {
     icon: '🎭',
-    title: 'Твой стиль',
-    desc: 'Слушатель, друг, наставник — выбери сам.',
+    title: 'Стиль',
+    desc: '5 режимов общения на выбор.',
   },
   {
     icon: '🤫',
     title: 'Без осуждений',
-    desc: 'Говори о чём угодно. Без нотаций.',
+    desc: 'Говори о чём угодно.',
   },
   {
     icon: '🚫',
     title: 'Приватность',
-    desc: 'Данные не продаём и не используем для обучения.',
+    desc: 'Данные не продаём и не обучаем на них модели.',
   },
 ];
 
@@ -55,10 +55,7 @@ function AboutSection({ colors }: { colors: ColorsType }) {
     <View style={[styles.aboutCard, { borderTopColor: colors.border }]}>
       <Text style={[styles.aboutTitle, { color: colors.textMuted }]}>Что такое Eon?</Text>
       <Text style={[styles.aboutText, { color: colors.textSecondary }]}>
-        Eon — это не чат-бот и не терапевт. Это кто-то, кто просто рядом.
-      </Text>
-      <Text style={[styles.aboutText, { color: colors.textSecondary }]}>
-        Он помнит, что ты рассказывал раньше. Не даёт советов, которые ты не просил, и не осуждает за то, что ты чувствуешь.
+        Персональный AI-компаньон для разговора. Помнит историю, подстраивается под твой стиль общения.
       </Text>
 
       <FlatList
@@ -229,7 +226,15 @@ export function ProfileScreen({ navigation }: Props) {
           </Pressable>
         )}
 
-        <Pressable style={styles.logoutBtn} onPress={logout}>
+        <Pressable
+          style={styles.logoutBtn}
+          onPress={() =>
+            Alert.alert('Выйти из аккаунта?', 'Вернуться можно в любое время.', [
+              { text: 'Отмена', style: 'cancel' },
+              { text: 'Выйти', style: 'destructive', onPress: logout },
+            ])
+          }
+        >
           <Text style={[styles.logoutText, { color: colors.error }]}>Выйти из аккаунта</Text>
         </Pressable>
 
