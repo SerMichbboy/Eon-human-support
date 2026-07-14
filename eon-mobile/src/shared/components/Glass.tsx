@@ -1,10 +1,20 @@
 import { BlurView } from 'expo-blur';
 import React, { ReactNode, useEffect, useId } from 'react';
 import { StyleProp, StyleSheet, View, ViewProps, ViewStyle } from 'react-native';
-import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
+import Animated, {
+  Easing,
+  interpolate,
+  interpolateColor,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Rect, Stop } from 'react-native-svg';
 import { useSettingsStore } from '@/shared/store/settings';
-import { MaterialLevel, radius, useMaterial } from '@/shared/theme';
+import { MaterialLevel, radius } from '@/shared/theme';
+import { darkMaterial, lightMaterial } from '@/shared/theme/material';
+import { useAnimatedThemeValue } from '@/shared/theme/ThemeAnimation';
 
 interface GlassCardProps {
   children: ReactNode;
@@ -72,33 +82,71 @@ function GlassRim({ borderRadius = 0 }: { borderRadius?: number }) {
 }
 
 /**
+ * Overlay/border/shadow all read the shared UI-thread theme value (see
+ * `ThemeAnimation.tsx`) and interpolate via `interpolateColor`/`interpolate`
+ * inside the worklet — the crossfade runs on the UI thread with zero JS
+ * re-renders, which matters here because `Glass` wraps a `BlurView` and is
+ * the single most-repeated component in the app (every card, every header).
+ * `blurIntensity` is deliberately *not* animated: dark/light specs use
+ * identical values per level, so it's a plain constant.
+ */
+function useOverlayStyle(level: MaterialLevel) {
+  const av = useAnimatedThemeValue();
+  const d = darkMaterial[level];
+  const l = lightMaterial[level];
+  return useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(av.value, [0, 1], [d.overlay, l.overlay]),
+    borderColor: interpolateColor(av.value, [0, 1], [d.border, l.border]),
+  }));
+}
+
+function useBottomBorderStyle(level: MaterialLevel) {
+  const av = useAnimatedThemeValue();
+  const d = darkMaterial[level];
+  const l = lightMaterial[level];
+  return useAnimatedStyle(() => ({
+    borderBottomColor: interpolateColor(av.value, [0, 1], [d.bottomBorder, l.bottomBorder]),
+  }));
+}
+
+function useShadowStyle(level: MaterialLevel) {
+  const av = useAnimatedThemeValue();
+  const d = darkMaterial[level];
+  const l = lightMaterial[level];
+  return useAnimatedStyle(() => ({
+    shadowColor: interpolateColor(av.value, [0, 1], [d.shadowColor, l.shadowColor]),
+    shadowOpacity: interpolate(av.value, [0, 1], [d.shadowOpacity, l.shadowOpacity]),
+    shadowRadius: interpolate(av.value, [0, 1], [d.shadowRadius, l.shadowRadius]),
+  }));
+}
+
+/**
  * GlassCard — rounded card with shadow and blur background.
  * `style` controls the content container layout (padding, size, gap).
  * Shadow is on the outer wrapper so overflow:hidden on the inner clip doesn't cut it.
  */
 export function GlassCard({ children, style, level = 'regular', borderRadius = radius.sm }: GlassCardProps) {
   const isDark = useSettingsStore((s) => s.themeValue) < 0.5;
-  const m = useMaterial(level);
+  const shadowStyle = useShadowStyle(level);
+  const overlayStyle = useOverlayStyle(level);
+  const blurIntensity = darkMaterial[level].blurIntensity;
 
   return (
-    <View style={[styles.shadow, { borderRadius, shadowColor: m.shadowColor, shadowOpacity: m.shadowOpacity, shadowRadius: m.shadowRadius }]}>
+    <Animated.View style={[styles.shadow, { borderRadius }, shadowStyle]}>
       {/* clip: keeps blur + border inside rounded corners; receives all layout styles */}
       <View style={[styles.clip, { borderRadius }, style]}>
         <BlurView
-          intensity={m.blurIntensity}
+          intensity={blurIntensity}
           tint={isDark ? 'dark' : 'light'}
           style={StyleSheet.absoluteFillObject}
         />
-        <View
-          style={[
-            StyleSheet.absoluteFillObject,
-            { borderRadius, backgroundColor: m.overlay, borderWidth: 1, borderColor: m.border },
-          ]}
+        <Animated.View
+          style={[StyleSheet.absoluteFillObject, { borderRadius, borderWidth: 1 }, overlayStyle]}
         />
         {isDark && <GlassRim borderRadius={borderRadius} />}
         {children}
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -110,18 +158,20 @@ export function GlassCard({ children, style, level = 'regular', borderRadius = r
  */
 export function GlassPanel({ children, style, level = 'thick', ...rest }: GlassPanelProps) {
   const isDark = useSettingsStore((s) => s.themeValue) < 0.5;
-  const m = useMaterial(level);
+  const overlayStyle = useOverlayStyle(level);
+  const bottomBorderStyle = useBottomBorderStyle(level);
+  const blurIntensity = darkMaterial[level].blurIntensity;
 
   return (
     <View style={[styles.panel, style]} {...rest}>
       <BlurView
-        intensity={m.blurIntensity}
+        intensity={blurIntensity}
         tint={isDark ? 'dark' : 'light'}
         style={StyleSheet.absoluteFillObject}
       />
-      <View style={[StyleSheet.absoluteFillObject, { backgroundColor: m.overlay }]} />
+      <Animated.View style={[StyleSheet.absoluteFillObject, overlayStyle]} />
       {isDark && <GlassRim />}
-      <View style={[styles.panelBorder, { borderBottomColor: m.bottomBorder }]} />
+      <Animated.View style={[styles.panelBorder, bottomBorderStyle]} />
       {children}
     </View>
   );

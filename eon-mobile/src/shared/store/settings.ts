@@ -40,7 +40,17 @@ interface SettingsState {
   /** 0 = full dark, 1 = full light. Anything in between is a real, valid theme. */
   themeValue: number;
   setPreset: (preset: BgPreset) => Promise<void>;
-  /** Jumps to the opposite full extreme — used by the theme switch and the auth screens' icon. */
+  /**
+   * Jumps to the opposite full extreme — used by the theme switch and the
+   * auth screens' icon. The store value itself flips instantly (one cheap
+   * re-render); the visible crossfade lives entirely on the UI thread, see
+   * `ThemeAnimation.tsx`'s `ThemeAnimationProvider` — animating this store
+   * value itself through a JS-driven ramp was tried and reverted: every step
+   * was a Zustand `set()`, which re-renders every `useColors()`/
+   * `useMaterial()` consumer (including every `BlurView`-wrapped Glass panel)
+   * on the JS thread, and stacking enough of those in under half a second is
+   * what actually caused the stutter.
+   */
   toggleThemeExtreme: () => Promise<void>;
   hydrate: () => Promise<void>;
 }

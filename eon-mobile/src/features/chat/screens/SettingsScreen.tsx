@@ -61,45 +61,49 @@ function ThemeToggle() {
   );
 }
 
-// The layout box is the same fixed size for every swatch (never changes —
-// that's what stopped the whole row from reflowing/"jumping" on selection).
-// "25% bigger" is a `transform: scale` on the selected one instead of an
-// actual width/height change, so the surrounding layout never has to reflow.
-const UNSELECTED_SCALE = 1 / 1.25;
+const SELECTED_GROWTH = 1.5;
 
-/** Chat background swatch — the selected one scales up 25% and shows a tiny
- * chat mockup (two bubble bars) so you can actually see how messages read on
- * it, not just the bare gradient. */
+/** Chat background swatch — the selected one is genuinely 50% bigger (real
+ * width/height, not a scale trick) and shows a tiny chat mockup (two bubble
+ * bars) so you can actually see how messages read on it, not just the bare
+ * gradient.
+ *
+ * Size is driven by a shared value + `withSpring`, not `layout={LinearTransition}`.
+ * Reanimated's layout-transition props animate by scaling a snapshot via
+ * transform, not a true per-frame relayout — with a border + border-radius
+ * and percentage-sized children (miniChat bubbles) that reads as a visibly
+ * "crooked" squish/stretch mid-animation. Animating width/height directly
+ * triggers a real Yoga relayout every frame, so the border stays uniform and
+ * children stay correctly proportioned throughout. */
 function PresetSwatch({
   preset,
   selected,
-  boxSize,
+  baseSize,
   colors,
   onPress,
 }: {
   preset: BgPreset;
   selected: boolean;
-  boxSize: number;
+  baseSize: number;
   colors: Colors;
   onPress: () => void;
 }) {
-  const scale = useSharedValue(selected ? 1 : UNSELECTED_SCALE);
+  const targetSize = selected ? baseSize * SELECTED_GROWTH : baseSize;
+  const size = useSharedValue(targetSize);
 
   useEffect(() => {
-    scale.value = withSpring(selected ? 1 : UNSELECTED_SCALE, spring.snappy);
-  }, [selected]);
+    size.value = withSpring(targetSize, spring.gentle);
+  }, [targetSize]);
 
-  const scaleStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
+  const sizeStyle = useAnimatedStyle(() => ({ width: size.value, height: size.value }));
 
   return (
-    <Pressable style={[styles.presetWrap, { width: boxSize }]} onPress={onPress} hitSlop={4}>
+    <Pressable style={styles.presetWrap} onPress={onPress} hitSlop={4}>
       <Animated.View
         style={[
           styles.preview,
-          { width: boxSize, height: boxSize, borderColor: selected ? colors.accent : 'transparent' },
-          scaleStyle,
+          sizeStyle,
+          { borderColor: selected ? colors.accent : 'transparent' },
         ]}
       >
         <LinearGradient
@@ -252,11 +256,13 @@ export function SettingsScreen({ navigation }: Props) {
             const visiblePresets = BG_PRESETS.filter((preset) => preset.mode === themeModeFromValue(themeValue));
             // Sized to always fit all of them in one row, no scroll — that scroll
             // used to fight the screen's own swipe-back gesture for the same
-            // horizontal drag. Box size is the fixed layout footprint for every
-            // swatch; "selected" only scales visually within that same footprint.
+            // horizontal drag. `baseSize` is the unselected size; exactly one
+            // item (whichever is selected) renders at baseSize * SELECTED_GROWTH,
+            // so the fit math reserves room for that up front — count - 1 normal
+            // items plus one SELECTED_GROWTH-sized item, not `count` equal boxes.
             const gap = spacing.sm;
             const available = screenWidth - spacing.xl * 2 - gap * (visiblePresets.length - 1);
-            const boxSize = Math.floor(available / visiblePresets.length);
+            const baseSize = Math.floor(available / (visiblePresets.length - 1 + SELECTED_GROWTH));
             return (
               <View style={styles.presetRow}>
                 {visiblePresets.map((preset) => (
@@ -264,7 +270,7 @@ export function SettingsScreen({ navigation }: Props) {
                     key={preset.id}
                     preset={preset}
                     selected={presetId === preset.id}
-                    boxSize={boxSize}
+                    baseSize={baseSize}
                     colors={colors}
                     onPress={() => setPreset(preset)}
                   />

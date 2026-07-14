@@ -9,7 +9,7 @@ import {
 import React from 'react';
 import { View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { ThemeTransitionOverlay } from '@/shared/components/ThemeTransitionOverlay';
+import { ThemeAnimationProvider } from '@/shared/theme/ThemeAnimation';
 import { QueryProvider } from './providers/QueryProvider';
 import { RootNavigator } from './navigation/RootNavigator';
 
@@ -28,10 +28,11 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <QueryProvider>
-        <RootNavigator />
-      </QueryProvider>
-      <ThemeTransitionOverlay />
+      <ThemeAnimationProvider>
+        <QueryProvider>
+          <RootNavigator />
+        </QueryProvider>
+      </ThemeAnimationProvider>
     </SafeAreaProvider>
   );
 }

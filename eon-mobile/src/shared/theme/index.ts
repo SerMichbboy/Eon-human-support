@@ -1,7 +1,8 @@
 export { darkColors, lightColors, colors, useColors } from './colors';
 export type { Colors } from './colors';
-export { useMaterial, scrim } from './material';
+export { useMaterial, scrim, darkMaterial, lightMaterial } from './material';
 export type { MaterialLevel, MaterialSpec } from './material';
+export { ThemeAnimationProvider, useAnimatedThemeValue } from './ThemeAnimation';
 export { spring, timing, durations, NAV_DELAY } from './motion';
 export { typography, fontFamily } from './typography';
 export { alpha, mixColor } from './utils';
