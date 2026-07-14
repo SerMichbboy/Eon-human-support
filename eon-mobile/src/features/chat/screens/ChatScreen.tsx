@@ -15,36 +15,58 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import ReanimatedView, { FadeIn } from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
 import { companionApi } from '@/features/companion/api';
+import { profileApi } from '@/features/profile/api';
 import { AppStackParams } from '@/core/navigation/AppNavigator';
 import { useSettingsStore } from '@/shared/store/settings';
-import { useColors, radius, spacing, typography } from '@/shared/theme';
+import { useColors, useStyleAccent, fontFamily, radius, spacing, typography, NAV_DELAY } from '@/shared/theme';
 import { GlassPanel } from '@/shared/components/Glass';
+import { IconButton } from '@/shared/components/IconButton';
+import { TouchRipple, TouchRippleHandle } from '@/shared/components/TouchRipple';
 import { ChatInput } from '../components/ChatInput';
 import { MessageBubble, TypingIndicator } from '../components/MessageBubble';
-import { PatternOverlay } from '../components/PatternOverlay';
 
-import { useChat } from '../hooks/useChat';
+import { ConnectionStatus, useChat } from '../hooks/useChat';
 
 type Props = NativeStackScreenProps<AppStackParams, 'Chat'>;
 
 const SCROLL_THRESHOLD = 120;
 
+const STATUS_LABEL: Record<ConnectionStatus, (name: string) => string> = {
+  connected: (name) => `${name} онлайн`,
+  connecting: () => 'Подключение...',
+  disconnected: () => 'Недоступен',
+};
+const STATUS_COLOR: Record<ConnectionStatus, (colors: ReturnType<typeof useColors>) => string> = {
+  connected: (colors) => colors.success,
+  connecting: (colors) => colors.textMuted,
+  disconnected: (colors) => colors.error,
+};
+
 export function ChatScreen({ navigation }: Props) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { messages, isConnected, isTyping, loadingMore, loadMore, send } = useChat();
+  const { messages, connectionStatus, isConnected, isTyping, loadingMore, loadMore, send } = useChat();
   const listRef = useRef<FlatList>(null);
 
   const [scrolledUp, setScrolledUp] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const { chatBg, pattern, patternColor, hydrate } = useSettingsStore();
+  const rippleRef = useRef<TouchRippleHandle>(null);
+  const { chatBgColors, hydrate } = useSettingsStore();
 
   const { data: companion } = useQuery({
     queryKey: ['companion'],
     queryFn: () => companionApi.get().then((r) => r.data),
   });
   const companionName = companion?.name ?? 'Eon';
+
+  const { data: profile } = useQuery({
+    queryKey: ['profile'],
+    queryFn: () => profileApi.get().then((r) => r.data),
+  });
+  const styleAccent = useStyleAccent(profile?.companion_preferences?.communication_style);
 
   // Hide the native header — we render our own
   useLayoutEffect(() => {
@@ -61,14 +83,35 @@ export function ChatScreen({ navigation }: Props) {
     }).start();
   }, [scrolledUp]);
 
-  // left→right = settings, right→left = profile
-  const headerPan = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > Math.abs(g.dy) && Math.abs(g.dx) > 12,
-    onPanResponderRelease: (_, g) => {
-      if (g.dx > 50) navigation.navigate('Settings');
-      else if (g.dx < -50) navigation.navigate('Profile');
-    },
-  }), [navigation]);
+  // left→right = settings, right→left = profile. Attached to the whole screen
+  // (not just the header) so the swipe works no matter where you drag from.
+  // Claimed on the *capture* phase (evaluated before the FlatList's own scroll
+  // responder gets a look) so a clearly-horizontal drag locks out vertical
+  // scroll for the whole gesture, and a clearly-vertical one never gets
+  // reconsidered as a swipe mid-scroll — the axis is decided once, not
+  // re-litigated on every move event.
+  const headerPan = useMemo(() => {
+    const isHorizontalDrag = (g: { dx: number; dy: number }) =>
+      Math.abs(g.dx) > Math.abs(g.dy) * 1.5 && Math.abs(g.dx) > 12;
+    return PanResponder.create({
+      onMoveShouldSetPanResponderCapture: (_, g) => isHorizontalDrag(g),
+      onMoveShouldSetPanResponder: (_, g) => isHorizontalDrag(g),
+      onPanResponderGrant: (evt) => {
+        rippleRef.current?.triggerAt(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
+      },
+      onPanResponderMove: (evt) => {
+        rippleRef.current?.moveTo(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
+      },
+      onPanResponderRelease: (_, g) => {
+        rippleRef.current?.release();
+        if (g.dx > 50) setTimeout(() => navigation.navigate('Settings'), NAV_DELAY);
+        else if (g.dx < -50) setTimeout(() => navigation.navigate('Profile'), NAV_DELAY);
+      },
+      onPanResponderTerminate: () => {
+        rippleRef.current?.release();
+      },
+    });
+  }, [navigation]);
 
   const handleScroll = useCallback((e: any) => {
     setScrolledUp(e.nativeEvent.contentOffset.y > SCROLL_THRESHOLD);
@@ -81,25 +124,28 @@ export function ChatScreen({ navigation }: Props) {
   const invertedData = [...messages].reverse();
 
   return (
-    <View style={[styles.root, { backgroundColor: chatBg }]}>
-      <PatternOverlay pattern={pattern} color={patternColor} />
+    <View style={styles.root} {...headerPan.panHandlers}>
+      <LinearGradient
+        colors={chatBgColors}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFillObject}
+      />
 
-      {/* Custom header — full JS, PanResponder works everywhere */}
-      <GlassPanel
-        style={[styles.navHeader, { paddingTop: insets.top }]}
-        {...headerPan.panHandlers}
-      >
-        <Pressable onPress={() => navigation.navigate('Settings')} hitSlop={12} style={styles.navBtn}>
+      {/* Custom header — full JS. Swipe-to-navigate is on the whole screen (see
+          `headerPan` above), not just this bar. */}
+      <GlassPanel style={[styles.navHeader, { paddingTop: insets.top }]}>
+        <IconButton onPress={() => navigation.navigate('Settings')} pressDelay={NAV_DELAY} hitSlop={12} style={styles.navBtn}>
           <Text style={{ fontSize: 20, color: colors.textSecondary }}>⚙</Text>
-        </Pressable>
+        </IconButton>
 
         <Text style={[styles.headerName, { color: colors.textPrimary }]} pointerEvents="none">
           {companionName.toUpperCase()}
         </Text>
 
-        <Pressable onPress={() => navigation.navigate('Profile')} hitSlop={12} style={styles.navBtn}>
+        <IconButton onPress={() => navigation.navigate('Profile')} pressDelay={NAV_DELAY} hitSlop={12} style={styles.navBtn}>
           <Ionicons name="person-outline" size={22} color={colors.textSecondary} />
-        </Pressable>
+        </IconButton>
       </GlassPanel>
 
       <KeyboardAvoidingView
@@ -107,21 +153,21 @@ export function ChatScreen({ navigation }: Props) {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={0}
       >
-        {/* Status bar */}
-        <GlassPanel style={styles.statusBar} {...headerPan.panHandlers}>
-          <View style={[styles.statusDot, { backgroundColor: isConnected ? colors.success : colors.textMuted }]} />
+        {/* Status — no card/border, just a quiet dot + label */}
+        <ReanimatedView.View key={connectionStatus} entering={FadeIn.duration(200)} style={styles.statusBar}>
+          <View style={[styles.statusDot, { backgroundColor: STATUS_COLOR[connectionStatus](colors) }]} />
           <Text style={[styles.statusText, { color: colors.textSecondary }]}>
-            {isConnected ? `${companionName} онлайн` : 'Подключение...'}
+            {STATUS_LABEL[connectionStatus](companionName)}
           </Text>
-        </GlassPanel>
+        </ReanimatedView.View>
 
         <View style={styles.listWrapper}>
           <FlatList
             ref={listRef}
             data={invertedData}
             keyExtractor={(m) => m.id}
-            renderItem={({ item }) => <MessageBubble message={item} />}
-            ListHeaderComponent={isTyping ? <TypingIndicator /> : null}
+            renderItem={({ item }) => <MessageBubble message={item} accent={item.role === 'assistant' ? styleAccent : undefined} />}
+            ListHeaderComponent={isTyping ? <TypingIndicator accent={styleAccent} /> : null}
             ListFooterComponent={loadingMore ? (
               <View style={styles.loadingMore}>
                 <ActivityIndicator size="small" color={colors.textMuted} />
@@ -142,12 +188,12 @@ export function ChatScreen({ navigation }: Props) {
             style={[styles.scrollBtn, { opacity: fadeAnim, transform: [{ scale: fadeAnim }] }]}
             pointerEvents={scrolledUp ? 'auto' : 'none'}
           >
-            <Pressable
-              style={[styles.scrollBtnInner, { backgroundColor: colors.bgCard, borderColor: colors.border }]}
+            <IconButton
+              style={[styles.scrollBtnInner, { backgroundColor: colors.bgCard, borderColor: colors.border, shadowColor: colors.accent }]}
               onPress={scrollToBottom}
             >
               <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
-            </Pressable>
+            </IconButton>
           </Animated.View>
         </View>
 
@@ -155,6 +201,8 @@ export function ChatScreen({ navigation }: Props) {
           <ChatInput onSend={send} disabled={!isConnected} />
         </View>
       </KeyboardAvoidingView>
+
+      <TouchRipple ref={rippleRef} />
     </View>
   );
 }
@@ -177,7 +225,7 @@ const styles = StyleSheet.create({
   },
   headerName: {
     fontSize: 15,
-    fontWeight: '300',
+    fontFamily: fontFamily.light,
     letterSpacing: 5,
   },
   statusBar: {
@@ -206,7 +254,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
     shadowRadius: 4,

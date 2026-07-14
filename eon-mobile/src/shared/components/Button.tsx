@@ -1,6 +1,7 @@
 import React from 'react';
 import { ActivityIndicator, GestureResponderEvent, Pressable, StyleSheet, Text } from 'react-native';
-import { useColors, radius, typography } from '@/shared/theme';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import { useColors, radius, spring, typography } from '@/shared/theme';
 
 interface Props {
   title: string;
@@ -10,28 +11,36 @@ interface Props {
   variant?: 'primary' | 'ghost';
 }
 
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
 export function Button({ title, loading, disabled, variant = 'primary', onPress }: Props) {
   const colors = useColors();
   const isPrimary = variant === 'primary';
+  const scale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+
   return (
-    <Pressable
-      style={({ pressed }) => [
+    <AnimatedPressable
+      style={[
         styles.base,
         { borderRadius: radius.md },
         isPrimary
           ? { backgroundColor: colors.accent }
           : { borderWidth: 1, borderColor: colors.border },
-        pressed && styles.pressed,
+        animatedStyle,
       ]}
       disabled={loading || disabled}
       onPress={onPress}
+      onPressIn={() => { scale.value = withSpring(0.96, spring.snappy); }}
+      onPressOut={() => { scale.value = withSpring(1, spring.snappy); }}
     >
       {loading ? (
-        <ActivityIndicator color={isPrimary ? '#fff' : colors.accent} />
+        <ActivityIndicator color={isPrimary ? colors.onAccent : colors.accent} />
       ) : (
-        <Text style={[styles.label, !isPrimary && { color: colors.accent }]}>{title}</Text>
+        <Text style={[styles.label, { color: isPrimary ? colors.onAccent : colors.accent }]}>{title}</Text>
       )}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -42,6 +51,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 24,
   },
-  pressed: { opacity: 0.75 },
-  label: { ...typography.body, fontWeight: '600', color: '#fff' },
+  label: { ...typography.bodySemibold },
 });

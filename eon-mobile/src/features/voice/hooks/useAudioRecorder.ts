@@ -63,6 +63,10 @@ export function useAudioRecorder() {
   }, []);
 
   const reset = useCallback(() => {
+    if (recording.current) {
+      recording.current.stopAndUnloadAsync().catch(() => {});
+      recording.current = null;
+    }
     setUri(null);
     setState('idle');
   }, []);

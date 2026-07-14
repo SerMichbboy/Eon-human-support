@@ -1,6 +1,37 @@
+import json
+import re
+
 from openai import AsyncOpenAI
 
 from src.main.settings import Settings
+
+_JSON_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
+
+# One schema per onboarding step, using the exact field names the profile merge logic expects
+# (src/application/onboarding/save_profile_step.py). Keeping this step-scoped instead of asking
+# the model to freely map facts across all categories avoids ambiguous guesses like "location"
+# under the wrong category, or invented field names (e.g. "name" instead of "preferred_name")
+# that silently fail to merge.
+_STEP_SCHEMAS: dict[str, str] = {
+    "intro": (
+        '{"basic_info": {"preferred_name": string|null, "age": integer|null, "location": string|null}}'
+    ),
+    "life_context": (
+        '{"life_context": {"occupation": string|null, "family_status": string|null, '
+        '"close_people": string[], "values": string[]}}'
+    ),
+    "positive_moments": (
+        '{"positive_moments": {"joyful_memories": string[], "sources_of_energy": string[], "dreams": string[]}}'
+    ),
+    "struggles": (
+        '{"struggles": {"coping_mechanisms": string[], "difficult_periods": string[], "anxiety_topics": string[]}}'
+    ),
+    "companion_preferences": (
+        '{"companion_preferences": {"tone": "warm"|"neutral"|"direct", '
+        '"directiveness": "listener"|"advisor", '
+        '"communication_style": "listener"|"friend"|"mentor"|"mirror"|"debater"}}'
+    ),
+}
 
 _STUB_RESPONSES = [
     "Я здесь. Слушаю тебя внимательно.",
@@ -36,17 +67,30 @@ class ClaudeClient:
     async def extract_facts(self, transcript: str, step: str) -> dict:
         if self._stub:
             return {}
+        schema = _STEP_SCHEMAS.get(step)
+        if schema is None:
+            return {}
         prompt = (
-            f"Onboarding step: {step}\n\nUser said: {transcript}\n\n"
-            "Extract structured facts from the user's speech relevant to the onboarding step. "
-            "Return a JSON object with extracted facts mapped to profile categories: "
-            "basic_info, life_context, positive_moments, struggles, key_events, companion_preferences. "
-            "Return only JSON, no explanation."
+            f'The user (speaking Russian) said: "{transcript}"\n\n'
+            f"Extract only facts explicitly stated above into exactly this JSON shape:\n{schema}\n\n"
+            "Use exactly these field names. If a field wasn't mentioned, use null (or an empty "
+            "array for list fields) — never invent, guess, or infer values that weren't said. "
+            "Return only the JSON object, no explanation."
         )
-        response = await self._client.chat.completions.create(
-            model="openai/gpt-4.1-mini",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=1024,
-        )
-        import json
-        return json.loads(response.choices[0].message.content)
+        try:
+            response = await self._client.chat.completions.create(
+                model="openai/gpt-4.1-mini",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1024,
+                response_format={"type": "json_object"},
+            )
+        except Exception:
+            # Provider hiccup (e.g. upstream 500) — better to extract nothing
+            # than to crash the whole onboarding voice-step request.
+            return {}
+        content = response.choices[0].message.content or ""
+        content = _JSON_FENCE_RE.sub("", content.strip()).strip()
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            return {}

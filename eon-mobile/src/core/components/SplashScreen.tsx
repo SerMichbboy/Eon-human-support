@@ -1,11 +1,13 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
+import { alpha, fontFamily, useColors } from '@/shared/theme';
 
 interface Props {
   onDone: () => void;
 }
 
 export function SplashScreen({ onDone }: Props) {
+  const colors = useColors();
   const symbolOpacity = useRef(new Animated.Value(0)).current;
   const symbolScale = useRef(new Animated.Value(0.7)).current;
   const textOpacity = useRef(new Animated.Value(0)).current;
@@ -30,28 +32,30 @@ export function SplashScreen({ onDone }: Props) {
     ]).start(() => onDone());
   }, []);
 
+  const accentDim = alpha(colors.accent, 0.25);
+
   return (
-    <Animated.View style={[styles.root, { opacity: containerOpacity }]}>
+    <Animated.View style={[styles.root, { backgroundColor: colors.bg, opacity: containerOpacity }]}>
       <View style={styles.content}>
         {/* Symbol */}
         <Animated.View style={[
           styles.symbolWrap,
           { opacity: symbolOpacity, transform: [{ scale: symbolScale }] },
         ]}>
-          <View style={styles.ring}>
-            <View style={styles.innerDot} />
+          <View style={[styles.ring, { borderColor: colors.accent }]}>
+            <View style={[styles.innerDot, { backgroundColor: colors.accent, shadowColor: colors.accent }]} />
           </View>
-          <View style={styles.arcLeft} />
-          <View style={styles.arcRight} />
+          <View style={[styles.arcLeft, { borderColor: accentDim }]} />
+          <View style={[styles.arcRight, { borderColor: accentDim }]} />
         </Animated.View>
 
         {/* Wordmark */}
-        <Animated.Text style={[styles.wordmark, { opacity: textOpacity }]}>
+        <Animated.Text style={[styles.wordmark, { color: colors.textPrimary, opacity: textOpacity }]}>
           EON
         </Animated.Text>
 
         {/* Tagline */}
-        <Animated.Text style={[styles.tagline, { opacity: taglineOpacity }]}>
+        <Animated.Text style={[styles.tagline, { color: alpha(colors.textPrimary, 0.35), opacity: taglineOpacity }]}>
           всегда рядом
         </Animated.Text>
       </View>
@@ -59,13 +63,9 @@ export function SplashScreen({ onDone }: Props) {
   );
 }
 
-const ACCENT = '#7C6FFF';
-const ACCENT_DIM = 'rgba(124,111,255,0.25)';
-
 const styles = StyleSheet.create({
   root: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#0F0F14',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 100,
@@ -86,7 +86,6 @@ const styles = StyleSheet.create({
     height: 64,
     borderRadius: 32,
     borderWidth: 2,
-    borderColor: ACCENT,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -94,8 +93,6 @@ const styles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 6,
-    backgroundColor: ACCENT,
-    shadowColor: ACCENT,
     shadowOpacity: 0.9,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 0 },
@@ -107,7 +104,6 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: ACCENT_DIM,
     left: 2,
     top: 24,
   },
@@ -117,19 +113,17 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: ACCENT_DIM,
     right: 2,
     top: 24,
   },
   wordmark: {
     fontSize: 36,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    fontFamily: fontFamily.bold,
     letterSpacing: 10,
   },
   tagline: {
     fontSize: 13,
-    color: 'rgba(255,255,255,0.35)',
+    fontFamily: fontFamily.regular,
     letterSpacing: 3,
     textTransform: 'lowercase',
   },

@@ -1,15 +1,16 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, FlatList, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppStackParams } from '@/core/navigation/AppNavigator';
 import { companionApi } from '@/features/companion/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '@/shared/store/auth';
-import { useColors, radius, spacing, typography } from '@/shared/theme';
+import { useColors, radius, spacing, typography, NAV_DELAY } from '@/shared/theme';
 import { GlassCard } from '@/shared/components/Glass';
+import { TouchRipple, TouchRippleHandle } from '@/shared/components/TouchRipple';
 import { profileApi } from '../api';
 
 type Props = NativeStackScreenProps<AppStackParams, 'Profile'>;
@@ -52,6 +53,20 @@ const APP_FEATURES = [
 ];
 
 function AboutSection({ colors }: { colors: ColorsType }) {
+  const carouselRef = useRef<FlatList>(null);
+
+  // One-time "peek" nudge shortly after the screen settles — scrolls a little
+  // right and back, hinting there's more to the side without an explicit label.
+  useEffect(() => {
+    const nudgeOut = setTimeout(() => {
+      carouselRef.current?.scrollToOffset({ offset: 40, animated: true });
+    }, 700);
+    const nudgeBack = setTimeout(() => {
+      carouselRef.current?.scrollToOffset({ offset: 0, animated: true });
+    }, 1150);
+    return () => { clearTimeout(nudgeOut); clearTimeout(nudgeBack); };
+  }, []);
+
   return (
     <View style={[styles.aboutCard, { borderTopColor: colors.border }]}>
       <Text style={[styles.aboutTitle, { color: colors.textMuted }]}>Что такое Eon?</Text>
@@ -60,13 +75,14 @@ function AboutSection({ colors }: { colors: ColorsType }) {
       </Text>
 
       <FlatList
+        ref={carouselRef}
         data={APP_FEATURES}
         horizontal
         showsHorizontalScrollIndicator={false}
         keyExtractor={(item) => item.title}
         contentContainerStyle={styles.featuresScroll}
         renderItem={({ item }) => (
-          <GlassCard style={styles.featureCard} borderRadius={radius.md} intensity={30}>
+          <GlassCard style={styles.featureCard} borderRadius={radius.md} level="thin">
             <Text style={styles.featureIcon}>{item.icon}</Text>
             <Text style={[styles.featureTitle, { color: colors.textPrimary }]}>{item.title}</Text>
             <Text style={[styles.featureDesc, { color: colors.textSecondary }]}>{item.desc}</Text>
@@ -102,6 +118,38 @@ export function ProfileScreen({ navigation }: Props) {
     queryClient.invalidateQueries({ queryKey: ['profile'] });
   }, [queryClient]));
 
+  // Profile slides in from the right (Chat's swipe right→left opens it) — swiping
+  // back left→right mirrors that and returns to Chat. Whole screen, EXCEPT once
+  // scrolled down to the horizontal feature carousel near the bottom — that one
+  // wants the same horizontal drag for its own scrolling, so back-swipe only
+  // arms near the top where there's no such conflict.
+  const scrollYRef = useRef(0);
+  const rippleRef = useRef<TouchRippleHandle>(null);
+  const handleScroll = useCallback((e: { nativeEvent: { contentOffset: { y: number } } }) => {
+    scrollYRef.current = e.nativeEvent.contentOffset.y;
+  }, []);
+  const backPan = useMemo(() => {
+    const isHorizontalDrag = (g: { dx: number; dy: number }) =>
+      scrollYRef.current < 40 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5 && Math.abs(g.dx) > 12;
+    return PanResponder.create({
+      onMoveShouldSetPanResponderCapture: (_, g) => isHorizontalDrag(g),
+      onMoveShouldSetPanResponder: (_, g) => isHorizontalDrag(g),
+      onPanResponderGrant: (evt) => {
+        rippleRef.current?.triggerAt(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
+      },
+      onPanResponderMove: (evt) => {
+        rippleRef.current?.moveTo(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
+      },
+      onPanResponderRelease: (_, g) => {
+        rippleRef.current?.release();
+        if (g.dx > 50) setTimeout(() => navigation.goBack(), NAV_DELAY);
+      },
+      onPanResponderTerminate: () => {
+        rippleRef.current?.release();
+      },
+    });
+  }, [navigation]);
+
   const renameMutation = useMutation({
     mutationFn: (name: string) => companionApi.rename(name),
     onSuccess: () => {
@@ -122,8 +170,8 @@ export function ProfileScreen({ navigation }: Props) {
   const hasProfile = !!data?.basic_info?.preferred_name;
 
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: colors.bg }]} edges={['bottom']}>
-      <ScrollView contentContainerStyle={styles.scroll}>
+    <SafeAreaView style={[styles.root, { backgroundColor: colors.bg }]} edges={['bottom']} {...backPan.panHandlers}>
+      <ScrollView contentContainerStyle={styles.scroll} onScroll={handleScroll} scrollEventThrottle={32}>
         <GlassCard style={styles.companionCard}>
           {editingName ? (
             <View style={styles.renameRow}>
@@ -141,7 +189,7 @@ export function ProfileScreen({ navigation }: Props) {
                   style={[styles.saveBtn, { backgroundColor: colors.accent }]}
                   onPress={() => botName.trim() && renameMutation.mutate(botName.trim())}
                 >
-                  <Text style={styles.saveBtnText}>
+                  <Text style={[styles.saveBtnText, { color: colors.onAccent }]}>
                     {renameMutation.isPending ? '...' : 'Сохранить'}
                   </Text>
                 </Pressable>
@@ -189,7 +237,7 @@ export function ProfileScreen({ navigation }: Props) {
               style={[styles.fillBtn, { backgroundColor: colors.accent }]}
               onPress={() => navigation.navigate('Onboarding')}
             >
-              <Text style={styles.fillBtnText}>Заполнить профиль</Text>
+              <Text style={[styles.fillBtnText, { color: colors.onAccent }]}>Заполнить профиль</Text>
             </Pressable>
           </GlassCard>
         )}
@@ -248,6 +296,8 @@ export function ProfileScreen({ navigation }: Props) {
           </Pressable>
         )}
 
+        <AboutSection colors={colors} />
+
         <Pressable
           style={styles.logoutBtn}
           onPress={() =>
@@ -259,9 +309,9 @@ export function ProfileScreen({ navigation }: Props) {
         >
           <Text style={[styles.logoutText, { color: colors.error }]}>Выйти из аккаунта</Text>
         </Pressable>
-
-        <AboutSection colors={colors} />
       </ScrollView>
+
+      <TouchRipple ref={rippleRef} />
     </SafeAreaView>
   );
 }
@@ -319,7 +369,7 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.sm,
   },
-  emptyText: { ...typography.body, fontWeight: '600' },
+  emptyText: { ...typography.bodySemibold },
   emptySubtext: { ...typography.bodySmall },
   fillBtn: {
     padding: spacing.md,
@@ -327,19 +377,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: spacing.sm,
   },
-  fillBtnText: { ...typography.body, color: '#fff', fontWeight: '600' },
+  fillBtnText: { ...typography.bodySemibold },
   editBtn: { padding: spacing.md, borderRadius: radius.sm, borderWidth: 1, alignItems: 'center' },
   editBtnText: { ...typography.body },
   logoutBtn: { marginTop: spacing.sm, alignItems: 'center', padding: spacing.md },
   logoutText: { ...typography.body },
   companionCard: { padding: spacing.md, gap: spacing.sm },
-  companionName: { fontSize: 20, fontWeight: '600' },
+  companionName: { fontSize: 20, fontFamily: typography.h3.fontFamily },
   editLink: { ...typography.bodySmall },
   renameRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   renameActions: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center', marginTop: spacing.sm },
   renameInput: { borderWidth: 1, borderRadius: radius.sm, padding: spacing.sm, fontSize: 15 },
   saveBtn: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.sm, alignItems: 'center' },
-  saveBtnText: { color: '#fff', fontWeight: '600', fontSize: 14 },
+  saveBtnText: { fontSize: 14, fontFamily: typography.bodySemibold.fontFamily },
   cancelText: { ...typography.bodySmall },
   aboutCard: {
     marginTop: spacing.sm,
@@ -364,6 +414,6 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   featureIcon: { fontSize: 28 },
-  featureTitle: { ...typography.body, fontWeight: '600' },
+  featureTitle: { ...typography.bodySemibold },
   featureDesc: { ...typography.bodySmall, lineHeight: 18 },
 });

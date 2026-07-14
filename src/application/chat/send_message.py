@@ -70,7 +70,17 @@ class SendMessage:
                 decrypted.append({"role": m["role"], "content": content})
             history = decrypted
 
-        reply = await self._claude.chat(system=system_prompt, messages=history)
+        try:
+            reply = await self._claude.chat(system=system_prompt, messages=history)
+        except Exception:
+            # Provider hiccup (e.g. upstream 500) — the user's own message above
+            # is already saved; without this, the whole call raises before the
+            # WS handler's session.commit(), silently rolling that save back
+            # too and just dropping the connection with nothing shown to them.
+            reply = (
+                "Прости, не получилось ответить — что-то не так со связью. "
+                "Попробуй, пожалуйста, ещё раз через минуту."
+            )
 
         encrypted_reply = (
             self._crypto.encrypt_field(reply, raw_key) if raw_key else reply

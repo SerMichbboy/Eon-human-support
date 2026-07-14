@@ -2,12 +2,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Animated, { FadeInUp } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '@/shared/components/Button';
 import { EonLogo } from '@/shared/components/EonLogo';
 import { FullscreenLoader } from '@/shared/components/FullscreenLoader';
 import { Input } from '@/shared/components/Input';
-import { useColors, radius, spacing, typography } from '@/shared/theme';
+import { IconButton } from '@/shared/components/IconButton';
+import { useColors, fontFamily, radius, spacing, typography } from '@/shared/theme';
 import { useSettingsStore } from '@/shared/store/settings';
 import { AuthStackParams } from '@/core/navigation/AuthNavigator';
 import { useRegisterEmail, useRegisterPhone } from '../hooks/useRegister';
@@ -16,7 +18,8 @@ type Props = NativeStackScreenProps<AuthStackParams, 'Register'>;
 
 export function RegisterScreen({ navigation }: Props) {
   const colors = useColors();
-  const { themeMode, setThemeMode } = useSettingsStore();
+  const themeValue = useSettingsStore((s) => s.themeValue);
+  const toggleThemeExtreme = useSettingsStore((s) => s.toggleThemeExtreme);
   const [mode, setMode] = useState<'email' | 'phone'>('email');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -42,21 +45,22 @@ export function RegisterScreen({ navigation }: Props) {
         {/* Top bar */}
         <View style={styles.topBar}>
           <EonLogo size={36} />
-          <Pressable
+          <IconButton
             style={styles.themeBtn}
             hitSlop={12}
-            onPress={() => setThemeMode(themeMode === 'dark' ? 'light' : 'dark')}
+            onPress={() => toggleThemeExtreme()}
           >
             <Ionicons
-              name={themeMode === 'dark' ? 'sunny-outline' : 'moon-outline'}
+              name={themeValue < 0.5 ? 'sunny-outline' : 'moon-outline'}
               size={22}
               color={colors.textSecondary}
             />
-          </Pressable>
+          </IconButton>
         </View>
 
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+          <Animated.View entering={FadeInUp.duration(400)}>
             <Text style={[styles.title, { color: colors.textPrimary }]}>Создать аккаунт</Text>
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Это займёт меньше минуты</Text>
 
@@ -67,7 +71,7 @@ export function RegisterScreen({ navigation }: Props) {
                   style={[styles.modeBtn, { borderColor: mode === m ? colors.accent : colors.border }, mode === m && { backgroundColor: colors.accentMuted }]}
                   onPress={() => setMode(m)}
                 >
-                  <Text style={[styles.modeBtnText, { color: mode === m ? colors.accent : colors.textSecondary }, mode === m && { fontWeight: '600' }]}>
+                  <Text style={[styles.modeBtnText, { color: mode === m ? colors.accent : colors.textSecondary }, mode === m && { fontFamily: fontFamily.semibold }]}>
                     {m === 'email' ? 'Email' : 'Телефон'}
                   </Text>
                 </Pressable>
@@ -88,6 +92,7 @@ export function RegisterScreen({ navigation }: Props) {
             <Pressable onPress={() => navigation.navigate('Login')}>
               <Text style={[styles.link, { color: colors.accent }]}>Уже есть аккаунт? Войти</Text>
             </Pressable>
+          </Animated.View>
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>

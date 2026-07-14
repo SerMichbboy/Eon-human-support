@@ -23,10 +23,18 @@
         "backgroundColor": "#0F0F14"
       },
       "package": "com.eon.humansupport",
-      "permissions": ["RECORD_AUDIO"]
+      "permissions": [
+        "RECORD_AUDIO"
+      ]
     },
     "plugins": [
-      ["expo-av", { "microphonePermission": "Eon использует микрофон для голосового общения." }]
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Eon использует микрофон для голосового общения."
+        }
+      ],
+      "expo-font"
     ]
   }
 }

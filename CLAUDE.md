@@ -191,15 +191,19 @@ const headerHeight = useHeaderHeight();
 <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={headerHeight}>
 ```
 
-### Theme System
+### Theme System ("Liquid Glass")
 
-**`src/shared/theme/index.ts`** exports:
-- `darkColors` and `lightColors` — full colour palettes
-- `colors` — static alias for `darkColors` (use only outside components)
-- `useColors()` — hook that reads `themeMode` from settings store and returns the correct palette
-- `spacing`, `radius`, `typography` — static design tokens
+`src/shared/theme/` is split into token modules, all re-exported through the `index.ts` barrel — never import a hex/rgba/spring-config/fontFamily literal directly in a component, always go through one of these:
 
-**Rule**: every component must call `const colors = useColors()` at the top and use inline styles for all color-dependent values. `StyleSheet.create` is only for layout/spacing (non-color) properties.
+- **`colors.ts`** — `darkColors`/`lightColors` (flat semantic tokens: bg, bgCard, accent, accentWarm, onAccent, userBubble/userBubbleText, etc.), `useColors()` hook that reads the continuous `themeValue` (0-1) from the settings store and returns every token linearly interpolated between the two palettes via `mixColor()` — not a binary dark/light switch. `userBubble`/`userBubbleText` are separate per-theme pairs specifically so light mode can use a pale-tint bubble with dark text instead of white-on-purple.
+- **`material.ts`** — successor to the old `glass.ts`. `useMaterial(level)` hook, `level: 'thin' | 'regular' | 'thick'` controls blur intensity/overlay/shadow depth (Liquid-Glass-style material hierarchy). Also exports `scrim` (modal backdrop color, theme-independent).
+- **`motion.ts`** — `spring.{gentle,snappy,bouncy}` and `timing.{fast,base,slow}` named presets for `react-native-reanimated`. Pick one of these three "personalities" per animation; don't invent new spring configs per screen.
+- **`typography.ts`** — `fontFamily.{light,regular,medium,semibold,bold}` (Onest via `@expo-google-fonts/onest`, loaded in `src/core/index.tsx` with a `useFonts()` gate before anything renders) and `typography.{h1,h2,h3,body,bodyMedium,bodySemibold,bodySmall,caption}` built from those. Never use `fontWeight` on custom-font text — RN can't fake-bold a named font family; use a `typography`/`fontFamily` variant instead.
+- **`utils.ts`** — `alpha(hex, opacity)` helper. Use instead of the `color + '30'` hex-suffix string-concat hack.
+- **`styleAccent.ts`** — `useStyleAccent(communicationStyle)` / `getStyleAccent(style, themeValue)`. Chat-scoped accent that varies by the AI's `communication_style` (listener/friend/mentor/mirror/debater): a "warmth" dial (`STYLE_WARMTH`, 0=driest→1=warmest) mixes between the app's existing `accent` (cool/dry end, e.g. Mentor) and `accentWarm` (warm end, e.g. Friend) — never new hand-picked hues, so adding a future style is one more warmth number. Unknown styles fall back to a neutral 0.5. Deliberately scoped to chat-only surfaces (`MessageBubble`'s AI-bubble left edge stripe, `TypingIndicator` dots) — the app's global `accent` token stays constant everywhere else so Eon reads as the same companion regardless of mode.
+- `spacing`, `radius` — unchanged, static layout tokens.
+
+**Rule**: every component calls `useColors()` + (when it renders a glass surface) `useMaterial()`, uses `typography`/`fontFamily` for text, and `StyleSheet.create` only for non-color, non-font layout.
 
 ```tsx
 export function MyComponent() {
@@ -214,15 +218,22 @@ const styles = StyleSheet.create({
 
 Radius values: `sm: 12`, `md: 18`, `lg: 28`, `full: 9999`.
 
+`GlassCard`/`GlassPanel` (`src/shared/components/Glass.tsx`) take a `level` prop (`MaterialLevel`) instead of a raw `intensity` number.
+
+**Specular highlight (`GlassRim`, in `Glass.tsx`)**: real Liquid Glass's highlight is a *rim light tracing the shape's contour* — brightness depends on surface-normal angle vs. a light direction, brightest facing the light and fading around the perimeter (Apple's actual implementation is a GPU shader: displacement-map refraction + gyroscope-linked specular highlight; see WWDC25 session 219 and https://imadrahmoune.com/liquid-glass/ for the technical breakdown). We don't run shaders — `GlassRim` approximates the effect with `react-native-svg`: a rounded-rect **stroke** (not a filled interior gradient) using a top-to-bottom `LinearGradient` as the stroke paint, which naturally reads as "brightest at the top, fading around the sides" without needing an angular/conic gradient. Dark-theme only — white is invisible on light theme's near-white cards, and colored tints there read as a stain rather than light (tried violet and warm amber, both rejected). Animates via a slow opacity breathe, not positional movement — an earlier version translated a filled rectangle up/down for "floating," but sliding it away from the true edge opened a gap with nothing covering it, exposing the border/seam underneath; a fixed-geometry stroke has no equivalent safe direction to slide.
+
+If a future pass wants the *real* thing (background refraction + gyroscope-reactive highlight), that's a `@shopify/react-native-skia` (SkSL shader) project — a much larger lift than tuning `GlassRim`, not attempted here.
+
 ### Settings Store
 
 **`src/shared/store/settings.ts`** (Zustand + SecureStore):
-- `presetId / chatBg / pattern / patternColor` — chat background preset
-- `themeMode: 'dark' | 'light'` — controls `useColors()` return value
-- `setThemeMode(mode)` — persists to SecureStore as `theme_mode`
-- `hydrate()` — called on app start, restores both preset and theme
+- `presetId / chatBgColors` — chat background preset. Presets are 2-stop `expo-linear-gradient` gradients (`BgPreset.colors`), not flat color + repeating dot/line/cross pattern (that older `PatternOverlay` approach was removed for looking dated — a soft ambient gradient reads as more "Liquid Glass"). Each `BgPreset` also carries a `mode: 'dark' | 'light'` — `SettingsScreen`'s picker only shows presets matching the current theme (no light pastel gradient offered while in dark mode, or vice versa), and `toggleThemeExtreme()`/`hydrate()` both auto-snap `presetId` to the first preset of the new mode if the current one doesn't match (e.g. flipping theme while a dark preset is selected).
+- `themeValue: number` — in practice always exactly `0` (full dark) or `1` (full light), toggled as a unit. It's a plain `number` rather than a boolean because `useColors()`/`useMaterial()` interpolate every color channel-by-channel between `darkColors`/`lightColors` (and `darkMaterial`/`lightMaterial`) via `mixColor()` (`theme/utils.ts`) at this value — a continuous-slider theme control was tried and reverted (the drag gesture was too fiddly to get right; see git history), but the interpolation machinery underneath was kept since it works fine for a clean 0/1 flip too and costs nothing extra.
+- `toggleThemeExtreme()` — flips between the two extremes; persists to SecureStore as `theme_value`. Used by both the `SettingsScreen` switch and the auth screens' quick-access icon.
+- `themeModeFromValue(v)` — derives the discrete `'dark' | 'light'` label needed by platform APIs that can't do a continuum (`BlurView`'s `tint` prop, sun/moon iconography): `v < 0.5 ? 'dark' : 'light'`.
+- `hydrate()` — called on app start, restores preset + `theme_value`; migrates a pre-existing install's old binary `theme_mode` key to `0`/`1` if `theme_value` was never written.
 
-Theme toggle is exposed in `SettingsModal` under a "Тема" section (🌙 Тёмная / ☀️ Светлая).
+Theme control is a plain iOS-style switch (`ThemeToggle` in `SettingsScreen.tsx`) — tap only, no drag. Its slide/color animation is local to the component (reanimated, UI-thread only) and doesn't touch the app-wide theme value until the tap completes, so it can't cause the re-render storm a continuous draggable slider did. `ThemeTransitionOverlay` (`src/shared/components/ThemeTransitionOverlay.tsx`, mounted once at the app root) cross-fades every flip: covers the screen with the outgoing theme's bg color, then fades it away to reveal the new one underneath.
 
 ### Voice Recording — Lock Gesture
 
@@ -236,7 +247,7 @@ Audio is recorded as **WAV** (16 kHz, mono, LINEAR_PCM on iOS). Never use m4a �
 
 ### Communication Style Picker
 
-Both `OnboardingScreen` (step 5) and `SettingsModal` show a horizontal/vertical list of 5 style cards. Tapping a card immediately updates local state AND fires the server mutation. The server `step` field must be `"companion_preferences"` in the PATCH body.
+Both `OnboardingScreen` (step 5) and `SettingsScreen` show a horizontal/vertical list of 5 style cards. Tapping a card immediately updates local state AND fires the server mutation. The server `step` field must be `"companion_preferences"` in the PATCH body.
 
 ### Feature-Sliced Design
 
@@ -267,6 +278,9 @@ Current pinned versions (Expo SDK 54 / RN 0.81.5 / React 19.1.0):
 - `react-native-gesture-handler@~2.28.0` — 3.x is incompatible with SDK 54
 - `expo-av@~16.0.8`
 - `expo-secure-store@~15.0.8`
+- `react-native-reanimated@~4.1.1` + `react-native-worklets@0.5.1` — v4 requires New Architecture (default-on for SDK 54) and split the Babel transform into `react-native-worklets/plugin`, which must be the **last** entry in `babel.config.js`'s `plugins` array.
+- `expo-font@~14.0.12` + `@expo-google-fonts/onest` — app font is Onest (weights 300/400/500/600/700), loaded via `useFonts()` in `src/core/index.tsx` before anything renders (same gate pattern as `RootNavigator`'s hydration guard).
+- `react-native-svg` — used for `GlassRim`'s contour stroke (see Liquid Glass notes above); not used anywhere else yet.
 
 After changing packages, always restart with `npx expo start --clear`.
 
@@ -319,8 +333,6 @@ Swipe gestures (PanResponder on both header rows):
 Settings is a full navigation screen (`src/features/chat/screens/SettingsScreen.tsx`), not a modal. Registered in AppNavigator with `animation: 'slide_from_left'` — slides in from the left to mirror the swipe direction.
 
 **Important**: do NOT add `gestureDirection: 'horizontal-inverted'` — it crashes on the current native stack version.
-
-Old `SettingsModal` component is kept in `components/SettingsModal.tsx` but is no longer used by ChatScreen.
 
 ### ChatInput — Floating Rounded Bar
 

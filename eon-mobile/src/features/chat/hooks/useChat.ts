@@ -31,15 +31,18 @@ async function fetchMessages(limit = 30, beforeId?: string): Promise<ChatMessage
   }
 }
 
+export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
+
 export function useChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [isConnected, setIsConnected] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
   const [isTyping, setIsTyping] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const ws = useRef<WebSocket | null>(null);
 
   const connect = useCallback(async () => {
+    setConnectionStatus('connecting');
     const token = await SecureStore.getItemAsync('access_token');
     if (!token) return;
     const rawKey = await SecureStore.getItemAsync('raw_key');
@@ -50,7 +53,7 @@ export function useChat() {
     socket.onopen = () => {
       // Send E2E key as first message before any chat messages
       socket.send(JSON.stringify({ key: rawKey ?? '' }));
-      setIsConnected(true);
+      setConnectionStatus('connected');
     };
 
     socket.onmessage = (event) => {
@@ -61,11 +64,27 @@ export function useChat() {
           ...prev,
           { id: Date.now().toString(), role: 'assistant', content: data.reply, createdAt: new Date() },
         ]);
+      } else if (data.error) {
+        // The backend normally turns provider failures into a graceful reply
+        // itself; this is a fallback for anything unexpected that still hits
+        // the WS handler's outer catch, so the user sees something instead of
+        // the connection just dropping silently.
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            role: 'assistant',
+            content: 'Что-то пошло не так. Попробуй ещё раз через минуту.',
+            createdAt: new Date(),
+          },
+        ]);
       }
     };
 
     socket.onclose = () => {
-      setIsConnected(false);
+      // Distinct from 'connecting': the retry hasn't started yet, so this
+      // window genuinely reads as "unavailable" rather than "in progress".
+      setConnectionStatus('disconnected');
       setTimeout(connect, 3000);
     };
 
@@ -103,5 +122,14 @@ export function useChat() {
     ws.current.send(JSON.stringify({ text }));
   }, []);
 
-  return { messages, isConnected, isTyping, hasMore, loadingMore, loadMore, send };
+  return {
+    messages,
+    connectionStatus,
+    isConnected: connectionStatus === 'connected',
+    isTyping,
+    hasMore,
+    loadingMore,
+    loadMore,
+    send,
+  };
 }

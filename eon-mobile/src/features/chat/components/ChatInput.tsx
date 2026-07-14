@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { useColors, radius, spacing, typography } from '@/shared/theme';
+import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
+import { fontFamily, useColors, radius, spacing, typography } from '@/shared/theme';
 import { VoiceButton } from '@/features/voice/components/VoiceButton';
 import { useAudioRecorder } from '@/features/voice/hooks/useAudioRecorder';
 import { apiClient } from '@/shared/api/client';
@@ -16,7 +17,7 @@ export function ChatInput({ onSend, disabled }: Props) {
   const [seconds, setSeconds] = useState(0);
   const recorder = useAudioRecorder();
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const dotOpacity = useSharedValue(1);
 
   const isLocked = recorder.state === 'locked';
   const isRecording = recorder.state === 'recording' || isLocked;
@@ -34,17 +35,19 @@ export function ChatInput({ onSend, disabled }: Props) {
 
   useEffect(() => {
     if (isLocked) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(fadeAnim, { toValue: 0.2, duration: 600, useNativeDriver: true }),
-          Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
-        ])
-      ).start();
+      dotOpacity.value = withRepeat(
+        withSequence(
+          withTiming(0.2, { duration: 600 }),
+          withTiming(1, { duration: 600 }),
+        ),
+        -1,
+      );
     } else {
-      fadeAnim.stopAnimation();
-      fadeAnim.setValue(1);
+      dotOpacity.value = 1;
     }
   }, [isLocked]);
+
+  const dotStyle = useAnimatedStyle(() => ({ opacity: dotOpacity.value }));
 
   const formatTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
@@ -80,7 +83,7 @@ export function ChatInput({ onSend, disabled }: Props) {
 
   if (isLocked) {
     return (
-      <View style={[styles.bar, { backgroundColor: colors.bgCard, shadowColor: colors.accent + '30' }]}>
+      <View style={[styles.bar, { backgroundColor: colors.bgCard, shadowColor: colors.accent }]}>
         <TouchableOpacity
           style={[styles.roundBtn, { backgroundColor: colors.bgInput, borderColor: colors.border }]}
           onPress={recorder.cancel}
@@ -89,19 +92,19 @@ export function ChatInput({ onSend, disabled }: Props) {
         </TouchableOpacity>
 
         <View style={styles.recordingIndicator}>
-          <Animated.Text style={[styles.recDot, { opacity: fadeAnim, color: colors.accent }]}>●</Animated.Text>
+          <Animated.Text style={[styles.recDot, dotStyle, { color: colors.accent }]}>●</Animated.Text>
           <Text style={[styles.recTime, { color: colors.textPrimary }]}>{formatTime(seconds)}</Text>
         </View>
 
         <TouchableOpacity style={[styles.roundBtn, styles.sendRoundBtn, { backgroundColor: colors.accent }]} onPress={handleVoiceSend}>
-          <Text style={styles.sendIcon}>↑</Text>
+          <Text style={[styles.sendIcon, { color: colors.onAccent }]}>↑</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
   return (
-    <View style={[styles.bar, { backgroundColor: colors.bgCard, shadowColor: '#000' }]}>
+    <View style={[styles.bar, { backgroundColor: colors.bgCard, shadowColor: colors.accent }]}>
       <TextInput
         style={[styles.input, { color: colors.textPrimary }]}
         placeholder="Напиши что-нибудь..."
@@ -126,7 +129,7 @@ export function ChatInput({ onSend, disabled }: Props) {
         onPress={handleSend}
         disabled={!text.trim() || disabled}
       >
-        <Text style={styles.sendIcon}>↑</Text>
+        <Text style={[styles.sendIcon, { color: colors.onAccent }]}>↑</Text>
       </TouchableOpacity>
     </View>
   );
@@ -164,8 +167,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sendRoundBtn: { borderWidth: 0 },
-  sendIcon: { color: '#fff', fontSize: 20, fontWeight: '700' },
-  cancelIcon: { fontSize: 16, fontWeight: '600' },
+  sendIcon: { fontSize: 20, fontFamily: fontFamily.bold },
+  cancelIcon: { fontSize: 16, fontFamily: fontFamily.semibold },
   recordingIndicator: {
     flex: 1,
     flexDirection: 'row',

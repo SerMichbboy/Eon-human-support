@@ -1,6 +1,6 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -12,9 +12,10 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import { AppStackParams } from '@/core/navigation/AppNavigator';
 import { Button } from '@/shared/components/Button';
-import { useColors, radius, spacing, typography } from '@/shared/theme';
+import { alpha, useColors, radius, spacing, typography } from '@/shared/theme';
 import { VoiceButton } from '@/features/voice/components/VoiceButton';
 import { useAudioRecorder } from '@/features/voice/hooks/useAudioRecorder';
 import { profileApi } from '@/features/profile/api';
@@ -43,9 +44,9 @@ const STEPS = [
   },
   {
     key: 'struggles',
-    question: 'Бывают ли периоды, когда особенно тяжело? Как ты обычно справляешься?',
-    hint: 'Это только между нами',
-    placeholder: 'Иногда бывает тяжело с...',
+    question: 'Если однажды станет тяжело — что обычно помогает тебе в такие моменты?',
+    hint: 'Необязательно рассказывать всё — просто чтобы я знал, как быть рядом полезнее',
+    placeholder: 'Например: прогулки, музыка, разговор с кем-то близким...',
   },
   {
     key: 'companion_preferences',
@@ -83,7 +84,24 @@ export function OnboardingScreen({ navigation }: Props) {
   const [step, setStep] = useState(0);
   const [inputMode, setInputMode] = useState<'voice' | 'text'>('text');
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [seconds, setSeconds] = useState(0);
   const recorder = useAudioRecorder();
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const isRecordingActive = recorder.state === 'recording' || recorder.state === 'locked';
+
+  useEffect(() => {
+    if (isRecordingActive) {
+      setSeconds(0);
+      timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+      setSeconds(0);
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [isRecordingActive]);
+
+  const formatTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
   const { data: profile } = useQuery({
     queryKey: ['profile'],
@@ -152,6 +170,7 @@ export function OnboardingScreen({ navigation }: Props) {
       <ScrollView
         contentContainerStyle={[styles.root, { backgroundColor: colors.bg, paddingTop: insets.top + spacing.lg }]}
         keyboardShouldPersistTaps="handled"
+        scrollEnabled={!isRecordingActive}
       >
         {canClose && (
           <Pressable
@@ -178,6 +197,7 @@ export function OnboardingScreen({ navigation }: Props) {
           ))}
         </View>
 
+        <Animated.View key={step} entering={FadeIn.duration(250)} style={styles.stepContent}>
         <Text style={[styles.question, { color: colors.textPrimary }]}>{current.question}</Text>
         <Text style={[styles.hint, { color: colors.textMuted }]}>{current.hint}</Text>
 
@@ -191,7 +211,7 @@ export function OnboardingScreen({ navigation }: Props) {
                   { borderColor: inputMode === m ? colors.accent : colors.border },
                   inputMode === m && { backgroundColor: colors.accentMuted },
                 ]}
-                onPress={() => setInputMode(m)}
+                onPress={() => { if (isRecordingActive) recorder.cancel(); setInputMode(m); }}
               >
                 <Text style={[styles.modeBtnText, { color: inputMode === m ? colors.accent : colors.textSecondary }]}>
                   {m === 'text' ? '✏️ Текст' : '🎙 Голос'}
@@ -211,7 +231,7 @@ export function OnboardingScreen({ navigation }: Props) {
                   style={[
                     styles.styleCard,
                     { borderColor: selected ? colors.accent : colors.border },
-                    selected && { backgroundColor: colors.accentMuted + '22' },
+                    selected && { backgroundColor: alpha(colors.accentMuted, 0.13) },
                   ]}
                   onPress={() => {
                     setText(opt.id);
@@ -244,6 +264,24 @@ export function OnboardingScreen({ navigation }: Props) {
               disabled={!text.trim()}
             />
           </View>
+        ) : recorder.state === 'locked' ? (
+          <View style={styles.lockedRow}>
+            <Pressable
+              style={[styles.roundBtn, { backgroundColor: colors.bgInput, borderColor: colors.border }]}
+              onPress={recorder.cancel}
+            >
+              <Text style={{ color: colors.textMuted, fontSize: 16 }}>✕</Text>
+            </Pressable>
+            <Text style={[styles.voiceHint, { color: colors.textPrimary }]}>
+              Запись идёт · {formatTime(seconds)}
+            </Text>
+            <Pressable
+              style={[styles.roundBtn, styles.roundBtnSend, { backgroundColor: colors.accent }]}
+              onPress={handleStopRecording}
+            >
+              <Text style={{ color: colors.onAccent, fontSize: 18 }}>↑</Text>
+            </Pressable>
+          </View>
         ) : (
           <View style={styles.voiceRow}>
             <VoiceButton
@@ -254,13 +292,14 @@ export function OnboardingScreen({ navigation }: Props) {
             />
             <Text style={[styles.voiceHint, { color: colors.textSecondary }]}>
               {recorder.state === 'recording'
-                ? 'Говори...'
+                ? `Говори... ${formatTime(seconds)} · потяни вверх, чтобы освободить руки`
                 : recorder.state === 'done'
                 ? 'Готово, отправляю...'
                 : 'Удержи чтобы говорить'}
             </Text>
           </View>
         )}
+        </Animated.View>
 
         <Button
           title={isLast ? (canClose ? 'Готово' : 'Начать общение') : 'Пропустить'}
@@ -305,7 +344,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
   },
-  modeBtnText: { ...typography.bodySmall, fontWeight: '500' },
+  modeBtnText: { ...typography.bodyMedium, fontSize: 13 },
+  stepContent: { gap: spacing.lg },
   textInputRow: { gap: spacing.sm },
   textInput: {
     borderWidth: 1,
@@ -316,7 +356,17 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   voiceRow: { alignItems: 'center', gap: spacing.sm },
-  voiceHint: { ...typography.caption },
+  voiceHint: { ...typography.caption, textAlign: 'center' },
+  lockedRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  roundBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  roundBtnSend: { borderWidth: 0 },
   stylePickerCol: { gap: spacing.sm },
   styleCard: {
     borderWidth: 1,
@@ -324,6 +374,6 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     gap: 4,
   },
-  styleLabel: { ...typography.body, fontWeight: '600' },
+  styleLabel: { ...typography.bodySemibold },
   styleDesc: { ...typography.bodySmall },
 });
