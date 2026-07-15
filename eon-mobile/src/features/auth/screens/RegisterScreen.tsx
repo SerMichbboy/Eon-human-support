@@ -25,6 +25,7 @@ export function RegisterScreen({ navigation }: Props) {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   const registerEmail = useRegisterEmail();
   const registerPhone = useRegisterPhone();
@@ -84,7 +85,19 @@ export function RegisterScreen({ navigation }: Props) {
               ) : (
                 <Input label="Телефон" placeholder="+79001234567" keyboardType="phone-pad" value={phone} onChangeText={setPhone} />
               )}
-              <Input label="Пароль" placeholder="Минимум 8 символов" secureTextEntry value={password} onChangeText={setPassword} error={passwordError} />
+              <Input
+                label="Пароль"
+                placeholder="Минимум 8 символов"
+                secureTextEntry={!showPassword}
+                value={password}
+                onChangeText={setPassword}
+                error={passwordError}
+                rightElement={
+                  <IconButton onPress={() => setShowPassword((s) => !s)} hitSlop={8}>
+                    <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color={colors.textSecondary} />
+                  </IconButton>
+                }
+              />
               {error && <Text style={[styles.error, { color: colors.error }]}>Ошибка: {(error as any)?.response?.data?.detail ?? (error as Error)?.message ?? 'Попробуй ещё раз'}</Text>}
               <Button title="Зарегистрироваться" onPress={handleRegister} />
             </View>

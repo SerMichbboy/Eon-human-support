@@ -2,14 +2,15 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { PanResponder, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import Animated, { interpolateColor, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import Animated, { FadeIn, interpolate, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppStackParams } from '@/core/navigation/AppNavigator';
 import { profileApi } from '@/features/profile/api';
 import { BG_PRESETS, BgPreset, themeModeFromValue, useSettingsStore } from '@/shared/store/settings';
-import { alpha, lightColors, useColors, Colors, fontFamily, radius, spacing, spring, typography, NAV_DELAY } from '@/shared/theme';
+import { alpha, useColors, useStyleAccent, Colors, radius, spacing, spring, typography, NAV_DELAY } from '@/shared/theme';
+import { EonLogo } from '@/shared/components/EonLogo';
 import { GlassPanel } from '@/shared/components/Glass';
 import { IconButton } from '@/shared/components/IconButton';
 import { TouchRipple, TouchRippleHandle } from '@/shared/components/TouchRipple';
@@ -17,26 +18,78 @@ import { TouchRipple, TouchRippleHandle } from '@/shared/components/TouchRipple'
 type Props = NativeStackScreenProps<AppStackParams, 'Settings'>;
 
 const STYLE_OPTIONS = [
-  { id: 'listener', label: 'Слушатель',  desc: 'Просто рядом, без советов' },
-  { id: 'friend',   label: 'Друг',       desc: 'Тепло, советует когда просят' },
-  { id: 'mentor',   label: 'Наставник',  desc: 'Прямо и по существу' },
-  { id: 'mirror',   label: 'Зеркало',    desc: 'Помогает думать вопросами' },
-  { id: 'debater',  label: 'Полемик',    desc: 'Честная позиция, без уступок' },
+  {
+    id: 'listener',
+    label: 'Слушатель',
+    points: [
+      'Не перебивает и не спешит с советами',
+      'Даёт просто выговориться',
+      'Задаёт вопросы, чтобы ты сам разобрался',
+      'Рядом, когда нужно, чтобы услышали',
+    ],
+  },
+  {
+    id: 'friend',
+    label: 'Друг',
+    points: [
+      'Тёплый и неформальный тон',
+      'Поддерживает и подбадривает',
+      'Советует, только если попросишь',
+      'Радуется победам вместе с тобой',
+    ],
+  },
+  {
+    id: 'mentor',
+    label: 'Наставник',
+    points: [
+      'Говорит прямо, не смягчая',
+      'Фокус на решении, а не на утешении',
+      'Может покритиковать по делу',
+      'Даёт конкретные шаги, а не общие фразы',
+    ],
+  },
+  {
+    id: 'mirror',
+    label: 'Зеркало',
+    points: [
+      'Отвечает вопросом на вопрос',
+      'Помогает увидеть мысль со стороны',
+      'Не даёт готовых ответов',
+      'Подталкивает к своим выводам',
+    ],
+  },
+  {
+    id: 'debater',
+    label: 'Полемик',
+    points: [
+      'Отстаивает свою точку зрения',
+      'Может не согласиться и поспорить',
+      'Не подстраивается, чтобы понравиться',
+      'Проверяет твои аргументы на прочность',
+    ],
+  },
 ];
 
-const SWITCH_WIDTH = 52;
-const SWITCH_HEIGHT = 31;
-const SWITCH_THUMB = 27;
-const SWITCH_INSET = 2;
-const SWITCH_TRAVEL = SWITCH_WIDTH - SWITCH_THUMB - SWITCH_INSET * 2;
+const SEGMENT_SIZE = 34;
+const SEGMENT_GAP = 3;
 
-/** A plain iOS-style switch — tap only, no drag. Its own slide/color animation is
- * local (reanimated, UI thread only); it does not drive the app-wide theme
- * interpolation, so flipping it can't cause the re-render storm a draggable
- * continuous slider did. */
+/**
+ * Moon/sun segmented picker — replaces a generic iOS-style switch, which
+ * read as an off-the-shelf system control rather than something that
+ * belongs to this app. Reuses the same selection language as everything
+ * else here (an accent-filled capsule marking the active choice, like the
+ * style cards below and the preset swatches) instead of introducing a new,
+ * unrelated visual idiom just for this one control.
+ *
+ * Tap only, no drag. The slide animation is local (reanimated, UI thread
+ * only) and doesn't drive the app-wide theme interpolation itself, so
+ * flipping it can't cause the re-render storm a draggable continuous
+ * slider did (see settings store notes).
+ */
 function ThemeToggle() {
   const themeValue = useSettingsStore((s) => s.themeValue);
   const toggleThemeExtreme = useSettingsStore((s) => s.toggleThemeExtreme);
+  const colors = useColors();
   const isLight = themeValue >= 0.5;
   const progress = useSharedValue(isLight ? 1 : 0);
 
@@ -44,19 +97,21 @@ function ThemeToggle() {
     progress.value = withSpring(isLight ? 1 : 0, spring.snappy);
   }, [isLight]);
 
-  const trackStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(progress.value, [0, 1], ['rgba(120,120,140,0.35)', lightColors.accent]),
-  }));
-
-  const thumbStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: progress.value * SWITCH_TRAVEL }],
+  const highlightStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: interpolate(progress.value, [0, 1], [0, SEGMENT_SIZE]) }],
   }));
 
   return (
-    <Pressable onPress={() => toggleThemeExtreme()} hitSlop={8}>
-      <Animated.View style={[styles.switchTrack, trackStyle]}>
-        <Animated.View style={[styles.switchThumb, thumbStyle]} />
-      </Animated.View>
+    <Pressable onPress={() => toggleThemeExtreme()} hitSlop={6}>
+      <View style={[styles.segmentTrack, { backgroundColor: colors.bgInput, borderColor: colors.border }]}>
+        <Animated.View style={[styles.segmentHighlight, { backgroundColor: colors.accent }, highlightStyle]} />
+        <View style={styles.segmentIcon}>
+          <Ionicons name="moon-outline" size={16} color={isLight ? colors.textMuted : colors.onAccent} />
+        </View>
+        <View style={styles.segmentIcon}>
+          <Ionicons name="sunny-outline" size={16} color={isLight ? colors.onAccent : colors.textMuted} />
+        </View>
+      </View>
     </Pressable>
   );
 }
@@ -120,7 +175,7 @@ function PresetSwatch({
         )}
         {selected && (
           <View style={[styles.checkCircle, { backgroundColor: colors.accent }]}>
-            <Text style={[styles.checkmark, { color: colors.onAccent }]}>✓</Text>
+            <Ionicons name="checkmark" size={12} color={colors.onAccent} />
           </View>
         )}
       </Animated.View>
@@ -130,6 +185,100 @@ function PresetSwatch({
       >
         {preset.label}
       </Text>
+    </Pressable>
+  );
+}
+
+const STYLE_GROWTH = 1.15;
+
+/** Communication-style card — collapsed to just its label; the selected
+ * one visibly grows (15%, `STYLE_GROWTH` — same "selected item grows"
+ * language as `PresetSwatch`, but via padding since these are full-width
+ * rows with no spare width to expand into) and smoothly reveals its bullet
+ * points. No absolutely-positioned children here, so this never needed the
+ * "crooked" workaround the preset swatch did — still animated as direct
+ * style values rather than `layout={LinearTransition}` for consistency.
+ *
+ * The bullets panel measures its own natural height once via `onLayout`
+ * (content is always mounted, just clipped by the wrapper's `overflow:
+ * hidden`), then animates the wrapper's height between 0 and that measured
+ * value — the standard reliable "auto-height" collapse/reveal pattern,
+ * since a fixed height would either clip wrapped text or leave dead space
+ * depending on device width.
+ *
+ * The reveal also leads with a small `EonLogo` tinted via `useStyleAccent`
+ * (the same per-communication-style hue used on the AI's message bubble in
+ * chat, see `theme/styleAccent.ts`) plus a one-line caption — the point is
+ * to teach the connection ("this color on Eon in chat = this style") right
+ * where the user is choosing the style, not leave them to notice the tint
+ * shift in chat on their own. Bullet dots reuse the same color for the same
+ * reason; the card's own selected-state border/background stay the app's
+ * plain `colors.accent` — that's "you picked this," a different signal from
+ * "this is this style's chat color." */
+function StyleCard({
+  id,
+  label,
+  points,
+  selected,
+  colors,
+  onPress,
+}: {
+  id: string;
+  label: string;
+  points: string[];
+  selected: boolean;
+  colors: Colors;
+  onPress: () => void;
+}) {
+  const styleAccentColor = useStyleAccent(id);
+  const [contentHeight, setContentHeight] = useState(0);
+  const targetPadding = spacing.md * (selected ? STYLE_GROWTH : 1);
+  const padding = useSharedValue(targetPadding);
+  const revealProgress = useSharedValue(selected ? 1 : 0);
+
+  useEffect(() => {
+    padding.value = withSpring(targetPadding, spring.gentle);
+  }, [targetPadding]);
+
+  useEffect(() => {
+    revealProgress.value = withTiming(selected ? 1 : 0, { duration: 260 });
+  }, [selected]);
+
+  const paddingStyle = useAnimatedStyle(() => ({ padding: padding.value }));
+  const revealStyle = useAnimatedStyle(() => ({
+    height: revealProgress.value * contentHeight,
+    opacity: revealProgress.value,
+    marginTop: revealProgress.value * spacing.xs,
+  }));
+
+  return (
+    <Pressable onPress={onPress}>
+      <Animated.View
+        style={[
+          styles.styleCard,
+          paddingStyle,
+          { borderColor: selected ? colors.accent : colors.border },
+          selected && { borderWidth: 2 },
+        ]}
+      >
+        <Text style={[styles.styleLabel, { color: selected ? colors.accent : colors.textPrimary }]}>
+          {label}
+        </Text>
+        <Animated.View style={[styles.styleRevealWrap, revealStyle]}>
+          <View onLayout={(e) => setContentHeight(e.nativeEvent.layout.height)} style={styles.stylePoints}>
+            <View style={styles.styleAccentRow}>
+              <EonLogo size={16} color={styleAccentColor} />
+              <Text style={[styles.styleAccentLabel, { color: colors.textMuted }]}>Цвет Eon в чате</Text>
+            </View>
+            {points.map((point) => (
+              <View key={point} style={styles.styleBulletRow}>
+                <View style={[styles.styleBulletDot, { backgroundColor: styleAccentColor }]} />
+                <Text style={[styles.styleBulletText, { color: colors.textSecondary }]}>{point}</Text>
+              </View>
+            ))}
+          </View>
+        </Animated.View>
+      </Animated.View>
     </Pressable>
   );
 }
@@ -211,47 +360,22 @@ export function SettingsScreen({ navigation }: Props) {
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + spacing.xl }]}>
 
-        {/* Theme */}
+        {/* Appearance — theme toggle + chat background live under one
+            heading now: both are "how the app looks," and having "Фон
+            чата" as its own separate section next to "Оформление" was a
+            distinction without a difference. */}
         <View style={styles.section}>
-          <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>Тема</Text>
+          <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>Оформление</Text>
           <View style={styles.themeRow}>
-            <Text style={styles.themeRowIcon}>{themeValue >= 0.5 ? '☀️' : '🌙'}</Text>
-            <Text style={[styles.themeRowLabel, { color: colors.textPrimary }]}>
+            <Animated.Text
+              key={themeValue >= 0.5 ? 'light' : 'dark'}
+              entering={FadeIn.duration(200)}
+              style={[styles.themeRowLabel, { color: colors.textSecondary }]}
+            >
               {themeValue >= 0.5 ? 'Светлая' : 'Тёмная'}
-            </Text>
+            </Animated.Text>
             <ThemeToggle />
           </View>
-        </View>
-
-        {/* Communication style */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>Стиль общения</Text>
-          <View style={styles.styleCol}>
-            {STYLE_OPTIONS.map((opt) => {
-              const selected = currentStyle === opt.id;
-              return (
-                <Pressable
-                  key={opt.id}
-                  style={[
-                    styles.styleCard,
-                    { borderColor: selected ? colors.accent : colors.border },
-                    selected && { backgroundColor: alpha(colors.accentMuted, 0.13) },
-                  ]}
-                  onPress={() => { setCurrentStyle(opt.id); styleMutation.mutate(opt.id); }}
-                >
-                  <Text style={[styles.styleLabel, { color: selected ? colors.accent : colors.textPrimary }]}>
-                    {opt.label}
-                  </Text>
-                  <Text style={[styles.styleDesc, { color: colors.textMuted }]}>{opt.desc}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-
-        {/* Chat background */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>Фон чата</Text>
           {(() => {
             const visiblePresets = BG_PRESETS.filter((preset) => preset.mode === themeModeFromValue(themeValue));
             // Sized to always fit all of them in one row, no scroll — that scroll
@@ -280,6 +404,26 @@ export function SettingsScreen({ navigation }: Props) {
           })()}
         </View>
 
+        {/* Communication style — a thin top divider between sections, same
+            hairline treatment as ProfileScreen's `aboutCard`/`profileRow`,
+            instead of relying on bare whitespace to separate them. */}
+        <View style={[styles.section, styles.sectionDivider, { borderTopColor: colors.border }]}>
+          <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>Стиль общения</Text>
+          <View style={styles.styleCol}>
+            {STYLE_OPTIONS.map((opt) => (
+              <StyleCard
+                key={opt.id}
+                id={opt.id}
+                label={opt.label}
+                points={opt.points}
+                selected={currentStyle === opt.id}
+                colors={colors}
+                onPress={() => { setCurrentStyle(opt.id); styleMutation.mutate(opt.id); }}
+              />
+            ))}
+          </View>
+        </View>
+
       </ScrollView>
 
       <TouchRipple ref={rippleRef} />
@@ -300,42 +444,54 @@ const styles = StyleSheet.create({
   title: { ...typography.h2 },
   scroll: { padding: spacing.xl, gap: spacing.xl },
   section: { gap: spacing.md },
+  sectionDivider: { marginTop: spacing.sm, paddingTop: spacing.lg, borderTopWidth: 1 },
   sectionLabel: {
     ...typography.bodySmall,
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
-  themeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  themeRowIcon: { fontSize: 18 },
-  themeRowLabel: { ...typography.body, flex: 1 },
-  switchTrack: {
-    width: SWITCH_WIDTH,
-    height: SWITCH_HEIGHT,
-    borderRadius: SWITCH_HEIGHT / 2,
-    justifyContent: 'center',
+  themeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  themeRowLabel: { ...typography.body },
+  segmentTrack: {
+    flexDirection: 'row',
+    width: SEGMENT_SIZE * 2 + SEGMENT_GAP * 2,
+    height: SEGMENT_SIZE + SEGMENT_GAP * 2,
+    borderRadius: (SEGMENT_SIZE + SEGMENT_GAP * 2) / 2,
+    borderWidth: 1,
+    padding: SEGMENT_GAP,
   },
-  switchThumb: {
+  segmentHighlight: {
     position: 'absolute',
-    left: SWITCH_INSET,
-    width: SWITCH_THUMB,
-    height: SWITCH_THUMB,
-    borderRadius: SWITCH_THUMB / 2,
-    backgroundColor: '#FFFFFF',
+    top: SEGMENT_GAP,
+    left: SEGMENT_GAP,
+    width: SEGMENT_SIZE,
+    height: SEGMENT_SIZE,
+    borderRadius: SEGMENT_SIZE / 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  segmentIcon: {
+    width: SEGMENT_SIZE,
+    height: SEGMENT_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   styleCol: { gap: spacing.sm },
   styleCard: {
     borderWidth: 1,
     borderRadius: radius.sm,
-    padding: spacing.md,
-    gap: 4,
   },
   styleLabel: { ...typography.bodySemibold },
-  styleDesc: { ...typography.caption, lineHeight: 16 },
+  styleRevealWrap: { overflow: 'hidden' },
+  stylePoints: { gap: 6, paddingTop: 2 },
+  styleAccentRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 },
+  styleAccentLabel: { ...typography.caption },
+  styleBulletRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  styleBulletDot: { width: 4, height: 4, borderRadius: 2, marginTop: 7 },
+  styleBulletText: { ...typography.caption, lineHeight: 16, flex: 1 },
   presetRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, paddingVertical: spacing.xs },
   presetWrap: { alignItems: 'center', gap: spacing.xs },
   preview: {
@@ -373,6 +529,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  checkmark: { fontSize: 10, fontFamily: fontFamily.bold },
   presetLabel: { ...typography.caption },
 });

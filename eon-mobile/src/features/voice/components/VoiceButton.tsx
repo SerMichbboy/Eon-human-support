@@ -1,5 +1,6 @@
+import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useRef } from 'react';
-import { Animated, PanResponder, StyleSheet, Text, View } from 'react-native';
+import { Animated, PanResponder, StyleSheet, View } from 'react-native';
 import { useColors, radius } from '@/shared/theme';
 import { RecorderState } from '../hooks/useAudioRecorder';
 
@@ -82,14 +83,20 @@ export function VoiceButton({ state, onPressIn, onPressOut, onLock }: Props) {
     <Animated.View style={{ transform: [{ scale: pulse }, { translateY: slideY }] }}>
       {state === 'recording' && (
         <View style={[styles.lockHint, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
-          <Text style={[styles.lockHintText, { color: colors.textMuted }]}>↑</Text>
+          <Ionicons name="arrow-up-outline" size={13} color={colors.textMuted} />
         </View>
       )}
       <View
         style={[styles.btn, { backgroundColor: btnBg, borderColor: btnBorder }]}
         {...panResponder.panHandlers}
       >
-        <Text style={styles.icon}>{isLocked ? '🔒' : isActive ? '●' : '🎙'}</Text>
+        {isLocked ? (
+          <Ionicons name="lock-closed-outline" size={22} color={colors.onAccent} />
+        ) : isActive ? (
+          <View style={[styles.activeDot, { backgroundColor: colors.accent }]} />
+        ) : (
+          <Ionicons name="mic-outline" size={22} color={colors.textSecondary} />
+        )}
       </View>
     </Animated.View>
   );
@@ -104,7 +111,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  icon: { fontSize: 22 },
+  activeDot: { width: 12, height: 12, borderRadius: 6 },
   lockHint: {
     position: 'absolute',
     top: -28,
@@ -114,5 +121,4 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderWidth: 1,
   },
-  lockHintText: { fontSize: 13 },
 });

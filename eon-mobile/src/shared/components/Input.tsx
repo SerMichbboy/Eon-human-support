@@ -6,9 +6,12 @@ import { useColors, radius, spacing, timing, typography } from '@/shared/theme';
 interface Props extends TextInputProps {
   label?: string;
   error?: string;
+  /** Overlaid on the input's right edge (e.g. a show/hide password toggle) —
+   * the input itself gets extra right padding to keep typed text clear of it. */
+  rightElement?: React.ReactNode;
 }
 
-export function Input({ label, error, style, onFocus, onBlur, ...props }: Props) {
+export function Input({ label, error, style, onFocus, onBlur, rightElement, ...props }: Props) {
   const colors = useColors();
   const [focused, setFocused] = useState(false);
   const focus = useSharedValue(0);
@@ -34,6 +37,7 @@ export function Input({ label, error, style, onFocus, onBlur, ...props }: Props)
               borderColor: error ? colors.error : focused ? colors.accent : colors.border,
               color: colors.textPrimary,
             },
+            !!rightElement && styles.inputWithRightElement,
             style,
           ]}
           placeholderTextColor={colors.textMuted}
@@ -42,6 +46,7 @@ export function Input({ label, error, style, onFocus, onBlur, ...props }: Props)
           onBlur={(e) => { setFocused(false); focus.value = withTiming(0, timing.fast); onBlur?.(e); }}
           {...props}
         />
+        {!!rightElement && <View style={styles.rightElement}>{rightElement}</View>}
       </Animated.View>
       {error && <Text style={[styles.error, { color: colors.error }]}>{error}</Text>}
     </View>
@@ -57,6 +62,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: 14,
     ...typography.body,
+  },
+  inputWithRightElement: { paddingRight: 48 },
+  rightElement: {
+    position: 'absolute',
+    right: spacing.md,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   error: { ...typography.caption },
 });

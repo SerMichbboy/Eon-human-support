@@ -24,6 +24,7 @@ export function LoginScreen({ navigation }: Props) {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   const loginEmail = useLoginEmail();
   const loginPhone = useLoginPhone();
@@ -85,7 +86,18 @@ export function LoginScreen({ navigation }: Props) {
               ) : (
                 <Input label="Телефон" placeholder="+79001234567" keyboardType="phone-pad" value={phone} onChangeText={setPhone} />
               )}
-              <Input label="Пароль" placeholder="••••••••" secureTextEntry value={password} onChangeText={setPassword} />
+              <Input
+                label="Пароль"
+                placeholder="••••••••"
+                secureTextEntry={!showPassword}
+                value={password}
+                onChangeText={setPassword}
+                rightElement={
+                  <IconButton onPress={() => setShowPassword((s) => !s)} hitSlop={8}>
+                    <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color={colors.textSecondary} />
+                  </IconButton>
+                }
+              />
               {error && <Text style={[styles.error, { color: colors.error }]}>Неверный логин или пароль</Text>}
               <Button title="Войти" onPress={handleLogin} />
             </View>

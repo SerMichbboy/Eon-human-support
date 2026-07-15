@@ -136,7 +136,7 @@ export function ChatScreen({ navigation }: Props) {
           `headerPan` above), not just this bar. */}
       <GlassPanel style={[styles.navHeader, { paddingTop: insets.top }]}>
         <IconButton onPress={() => navigation.navigate('Settings')} pressDelay={NAV_DELAY} hitSlop={12} style={styles.navBtn}>
-          <Text style={{ fontSize: 20, color: colors.textSecondary }}>⚙</Text>
+          <Ionicons name="settings-outline" size={22} color={colors.textSecondary} />
         </IconButton>
 
         <Text style={[styles.headerName, { color: colors.textPrimary }]} pointerEvents="none">

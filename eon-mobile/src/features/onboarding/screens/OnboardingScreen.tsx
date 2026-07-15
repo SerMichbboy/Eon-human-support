@@ -1,8 +1,11 @@
+import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -14,8 +17,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { AppStackParams } from '@/core/navigation/AppNavigator';
+import { apiClient } from '@/shared/api/client';
 import { Button } from '@/shared/components/Button';
-import { alpha, useColors, radius, spacing, typography } from '@/shared/theme';
+import { TouchRipple, TouchRippleHandle } from '@/shared/components/TouchRipple';
+import { useColors, radius, spacing, typography } from '@/shared/theme';
 import { VoiceButton } from '@/features/voice/components/VoiceButton';
 import { useAudioRecorder } from '@/features/voice/hooks/useAudioRecorder';
 import { profileApi } from '@/features/profile/api';
@@ -82,13 +87,16 @@ export function OnboardingScreen({ navigation }: Props) {
   const queryClient = useQueryClient();
 
   const [step, setStep] = useState(0);
-  const [inputMode, setInputMode] = useState<'voice' | 'text'>('text');
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [seconds, setSeconds] = useState(0);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const recorder = useAudioRecorder();
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const rippleRef = useRef<TouchRippleHandle>(null);
 
   const isRecordingActive = recorder.state === 'recording' || recorder.state === 'locked';
+  const isRecordingActiveRef = useRef(isRecordingActive);
+  useEffect(() => { isRecordingActiveRef.current = isRecordingActive; }, [isRecordingActive]);
 
   useEffect(() => {
     if (isRecordingActive) {
@@ -100,6 +108,36 @@ export function OnboardingScreen({ navigation }: Props) {
     }
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [isRecordingActive]);
+
+  // Swipe between steps — same whole-area PanResponder pattern as Chat/
+  // Settings/Profile (capture phase, axis-dominance so it doesn't fight the
+  // ScrollView's vertical scroll or the TextInput). Disabled while actively
+  // recording, since the recording isn't step-scoped and switching questions
+  // mid-recording would be confusing. This only moves the local `step`
+  // pointer — same as the existing dot-progress navigation — it doesn't
+  // save anything, so answers already typed on other steps are preserved.
+  const stepPan = useMemo(() => {
+    const isHorizontalDrag = (g: { dx: number; dy: number }) =>
+      !isRecordingActiveRef.current && Math.abs(g.dx) > Math.abs(g.dy) * 1.5 && Math.abs(g.dx) > 12;
+    return PanResponder.create({
+      onMoveShouldSetPanResponderCapture: (_, g) => isHorizontalDrag(g),
+      onMoveShouldSetPanResponder: (_, g) => isHorizontalDrag(g),
+      onPanResponderGrant: (evt) => {
+        rippleRef.current?.triggerAt(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
+      },
+      onPanResponderMove: (evt) => {
+        rippleRef.current?.moveTo(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
+      },
+      onPanResponderRelease: (_, g) => {
+        rippleRef.current?.release();
+        if (g.dx < -50) setStep((s) => Math.min(s + 1, STEPS.length - 1));
+        else if (g.dx > 50) setStep((s) => Math.max(s - 1, 0));
+      },
+      onPanResponderTerminate: () => {
+        rippleRef.current?.release();
+      },
+    });
+  }, []);
 
   const formatTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
@@ -132,12 +170,6 @@ export function OnboardingScreen({ navigation }: Props) {
     onSuccess: () => { invalidateProfile(); goNext(); },
   });
 
-  const voiceMutation = useMutation({
-    mutationFn: ({ audioUri, stepKey }: { audioUri: string; stepKey: string }) =>
-      onboardingApi.voiceStep(stepKey, audioUri),
-    onSuccess: () => { invalidateProfile(); goNext(); },
-  });
-
   const skipMutation = useMutation({
     mutationFn: (stepKey: string) => onboardingApi.saveStep(stepKey),
     onSuccess: () => { invalidateProfile(); goNext(); },
@@ -154,23 +186,42 @@ export function OnboardingScreen({ navigation }: Props) {
   };
 
   const isLast = step === STEPS.length - 1;
-  const isLoading = textMutation.isPending || voiceMutation.isPending || skipMutation.isPending;
+  const isLoading = textMutation.isPending || skipMutation.isPending;
 
   const handleSendText = () => {
     if (text.trim()) textMutation.mutate({ answer: text.trim(), stepKey: current.key });
   };
 
+  // Transcribes into the text field instead of saving directly — the user
+  // gets to see and edit what was heard before it's committed with the same
+  // "Сохранить" flow as typed text, rather than trusting a raw transcription
+  // straight to the profile.
   const handleStopRecording = async () => {
     const uri = await recorder.stop();
-    if (uri) voiceMutation.mutate({ audioUri: uri, stepKey: current.key });
+    if (!uri) return;
+    setIsTranscribing(true);
+    try {
+      const form = new FormData();
+      form.append('audio', { uri, name: 'audio.wav', type: 'audio/wav' } as any);
+      const { data } = await apiClient.post<{ text: string }>('/voice/transcribe', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      if (data.text) setText(data.text);
+    } finally {
+      setIsTranscribing(false);
+      recorder.reset();
+    }
   };
 
   return (
+    <View style={{ flex: 1 }} {...stepPan.panHandlers}>
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView
         contentContainerStyle={[styles.root, { backgroundColor: colors.bg, paddingTop: insets.top + spacing.lg }]}
         keyboardShouldPersistTaps="handled"
         scrollEnabled={!isRecordingActive}
+        bounces={false}
+        overScrollMode="never"
       >
         {canClose && (
           <Pressable
@@ -184,7 +235,7 @@ export function OnboardingScreen({ navigation }: Props) {
               navigation.goBack();
             }}
           >
-            <Text style={[styles.closeBtnText, { color: colors.textSecondary }]}>✕</Text>
+            <Ionicons name="close-outline" size={20} color={colors.textSecondary} />
           </Pressable>
         )}
 
@@ -198,28 +249,10 @@ export function OnboardingScreen({ navigation }: Props) {
         </View>
 
         <Animated.View key={step} entering={FadeIn.duration(250)} style={styles.stepContent}>
-        <Text style={[styles.question, { color: colors.textPrimary }]}>{current.question}</Text>
-        <Text style={[styles.hint, { color: colors.textMuted }]}>{current.hint}</Text>
-
-        {current.key !== 'companion_preferences' && (
-          <View style={styles.modeRow}>
-            {(['text', 'voice'] as const).map((m) => (
-              <Pressable
-                key={m}
-                style={[
-                  styles.modeBtn,
-                  { borderColor: inputMode === m ? colors.accent : colors.border },
-                  inputMode === m && { backgroundColor: colors.accentMuted },
-                ]}
-                onPress={() => { if (isRecordingActive) recorder.cancel(); setInputMode(m); }}
-              >
-                <Text style={[styles.modeBtnText, { color: inputMode === m ? colors.accent : colors.textSecondary }]}>
-                  {m === 'text' ? '✏️ Текст' : '🎙 Голос'}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        )}
+        <View style={styles.stepHeader}>
+          <Text style={[styles.question, { color: colors.textPrimary }]}>{current.question}</Text>
+          <Text style={[styles.hint, { color: colors.textMuted }]}>{current.hint}</Text>
+        </View>
 
         {current.key === 'companion_preferences' ? (
           <View style={styles.stylePickerCol}>
@@ -231,7 +264,7 @@ export function OnboardingScreen({ navigation }: Props) {
                   style={[
                     styles.styleCard,
                     { borderColor: selected ? colors.accent : colors.border },
-                    selected && { backgroundColor: alpha(colors.accentMuted, 0.13) },
+                    selected && { backgroundColor: colors.accentMuted },
                   ]}
                   onPress={() => {
                     setText(opt.id);
@@ -246,57 +279,63 @@ export function OnboardingScreen({ navigation }: Props) {
               );
             })}
           </View>
-        ) : inputMode === 'text' ? (
+        ) : (
           <View style={styles.textInputRow}>
-            <TextInput
-              style={[styles.textInput, { backgroundColor: colors.bgCard, borderColor: colors.border, color: colors.textPrimary }]}
-              placeholder={current.placeholder}
-              placeholderTextColor={colors.textMuted}
-              multiline
-              value={text}
-              onChangeText={setText}
-              returnKeyType="default"
-            />
+            {recorder.state === 'locked' ? (
+              <View style={styles.lockedRow}>
+                <Pressable
+                  style={[styles.roundBtn, { backgroundColor: colors.bgInput, borderColor: colors.border }]}
+                  onPress={recorder.cancel}
+                >
+                  <Ionicons name="close-outline" size={18} color={colors.textMuted} />
+                </Pressable>
+                <Text style={[styles.voiceHint, { color: colors.textPrimary }]}>
+                  Запись идёт · {formatTime(seconds)}
+                </Text>
+                <Pressable
+                  style={[styles.roundBtn, styles.roundBtnSend, { backgroundColor: colors.accent }]}
+                  onPress={handleStopRecording}
+                >
+                  <Ionicons name="arrow-up-outline" size={20} color={colors.onAccent} />
+                </Pressable>
+              </View>
+            ) : (
+              // Text field is always here — voice is just an inline mic
+              // button beside it, not a separate mode. Recording (tap-hold,
+              // slide up to lock) transcribes into this same field on
+              // release instead of submitting directly, so it can be
+              // reviewed/edited before "Сохранить".
+              <View style={styles.inputRow}>
+                <TextInput
+                  style={[styles.textInput, { backgroundColor: colors.bgCard, borderColor: colors.border, color: colors.textPrimary }]}
+                  placeholder={isTranscribing ? 'Распознаю голос...' : current.placeholder}
+                  placeholderTextColor={colors.textMuted}
+                  multiline
+                  value={text}
+                  onChangeText={setText}
+                  editable={!isTranscribing}
+                  returnKeyType="default"
+                />
+                {isTranscribing ? (
+                  <View style={styles.voiceBtnSlot}>
+                    <ActivityIndicator color={colors.accent} />
+                  </View>
+                ) : (
+                  <VoiceButton
+                    state={recorder.state}
+                    onPressIn={recorder.start}
+                    onPressOut={handleStopRecording}
+                    onLock={recorder.lock}
+                  />
+                )}
+              </View>
+            )}
             <Button
               title="Сохранить"
               onPress={handleSendText}
               loading={textMutation.isPending}
-              disabled={!text.trim()}
+              disabled={!text.trim() || isTranscribing || recorder.state === 'locked'}
             />
-          </View>
-        ) : recorder.state === 'locked' ? (
-          <View style={styles.lockedRow}>
-            <Pressable
-              style={[styles.roundBtn, { backgroundColor: colors.bgInput, borderColor: colors.border }]}
-              onPress={recorder.cancel}
-            >
-              <Text style={{ color: colors.textMuted, fontSize: 16 }}>✕</Text>
-            </Pressable>
-            <Text style={[styles.voiceHint, { color: colors.textPrimary }]}>
-              Запись идёт · {formatTime(seconds)}
-            </Text>
-            <Pressable
-              style={[styles.roundBtn, styles.roundBtnSend, { backgroundColor: colors.accent }]}
-              onPress={handleStopRecording}
-            >
-              <Text style={{ color: colors.onAccent, fontSize: 18 }}>↑</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <View style={styles.voiceRow}>
-            <VoiceButton
-              state={recorder.state}
-              onPressIn={recorder.start}
-              onPressOut={handleStopRecording}
-              onLock={recorder.lock}
-            />
-            <Text style={[styles.voiceHint, { color: colors.textSecondary }]}>
-              {recorder.state === 'recording'
-                ? `Говори... ${formatTime(seconds)} · потяни вверх, чтобы освободить руки`
-                : recorder.state === 'done'
-                ? 'Готово, отправляю...'
-                : 'Удержи чтобы говорить'}
-            </Text>
           </View>
         )}
         </Animated.View>
@@ -310,6 +349,8 @@ export function OnboardingScreen({ navigation }: Props) {
         />
       </ScrollView>
     </KeyboardAvoidingView>
+    <TouchRipple ref={rippleRef} />
+    </View>
   );
 }
 
@@ -331,23 +372,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  closeBtnText: { fontSize: 15, lineHeight: 18 },
   progress: { flexDirection: 'row', gap: spacing.xs, justifyContent: 'center' },
   dot: { width: 8, height: 8, borderRadius: radius.full },
   question: { ...typography.h2, textAlign: 'center' },
   hint: { ...typography.bodySmall, textAlign: 'center' },
-  modeRow: { flexDirection: 'row', gap: spacing.sm },
-  modeBtn: {
-    flex: 1,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    alignItems: 'center',
-  },
-  modeBtnText: { ...typography.bodyMedium, fontSize: 13 },
-  stepContent: { gap: spacing.lg },
-  textInputRow: { gap: spacing.sm },
+  // Question + hint are one unit (title + its own subtitle) — a tight gap
+  // groups them, distinct from the larger gap stepContent gives before the
+  // actual input area. Same gap for both would flatten that hierarchy and
+  // read as one undifferentiated stack instead of "header, then content."
+  stepHeader: { gap: spacing.xs },
+  stepContent: { gap: spacing.xl },
+  textInputRow: { gap: spacing.md },
+  inputRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   textInput: {
+    flex: 1,
     borderWidth: 1,
     borderRadius: radius.sm,
     padding: spacing.md,
@@ -355,7 +393,7 @@ const styles = StyleSheet.create({
     minHeight: 100,
     textAlignVertical: 'top',
   },
-  voiceRow: { alignItems: 'center', gap: spacing.sm },
+  voiceBtnSlot: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center' },
   voiceHint: { ...typography.caption, textAlign: 'center' },
   lockedRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   roundBtn: {

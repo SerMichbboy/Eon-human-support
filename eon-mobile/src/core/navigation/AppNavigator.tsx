@@ -24,6 +24,11 @@ export function AppNavigator({ initialRoute }: { initialRoute: keyof AppStackPar
         headerStyle: { backgroundColor: colors.bgCard },
         headerTintColor: colors.textPrimary,
         headerShadowVisible: false,
+        // Chat's registered title is 'Eon' (used as the back-button label on
+        // whatever screen it navigates to, e.g. Profile) — hide the label so
+        // the back button is just a chevron, not "‹ Eon" next to the screen's
+        // own title.
+        headerBackButtonDisplayMode: 'minimal',
       }}
     >
       <Stack.Screen name="Onboarding" component={OnboardingScreen} options={{ headerShown: false }} />

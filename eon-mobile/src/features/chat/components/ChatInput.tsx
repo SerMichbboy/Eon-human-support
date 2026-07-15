@@ -1,7 +1,8 @@
+import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
-import { fontFamily, useColors, radius, spacing, typography } from '@/shared/theme';
+import { useColors, radius, spacing, typography } from '@/shared/theme';
 import { VoiceButton } from '@/features/voice/components/VoiceButton';
 import { useAudioRecorder } from '@/features/voice/hooks/useAudioRecorder';
 import { apiClient } from '@/shared/api/client';
@@ -83,28 +84,28 @@ export function ChatInput({ onSend, disabled }: Props) {
 
   if (isLocked) {
     return (
-      <View style={[styles.bar, { backgroundColor: colors.bgCard, shadowColor: colors.accent }]}>
+      <View style={[styles.bar, { backgroundColor: colors.bgCard, borderColor: colors.accent, shadowColor: colors.accent }]}>
         <TouchableOpacity
           style={[styles.roundBtn, { backgroundColor: colors.bgInput, borderColor: colors.border }]}
           onPress={recorder.cancel}
         >
-          <Text style={[styles.cancelIcon, { color: colors.textMuted }]}>✕</Text>
+          <Ionicons name="close-outline" size={20} color={colors.textMuted} />
         </TouchableOpacity>
 
         <View style={styles.recordingIndicator}>
-          <Animated.Text style={[styles.recDot, dotStyle, { color: colors.accent }]}>●</Animated.Text>
+          <Animated.View style={[styles.recDot, dotStyle, { backgroundColor: colors.accent }]} />
           <Text style={[styles.recTime, { color: colors.textPrimary }]}>{formatTime(seconds)}</Text>
         </View>
 
         <TouchableOpacity style={[styles.roundBtn, styles.sendRoundBtn, { backgroundColor: colors.accent }]} onPress={handleVoiceSend}>
-          <Text style={[styles.sendIcon, { color: colors.onAccent }]}>↑</Text>
+          <Ionicons name="arrow-up-outline" size={20} color={colors.onAccent} />
         </TouchableOpacity>
       </View>
     );
   }
 
   return (
-    <View style={[styles.bar, { backgroundColor: colors.bgCard, shadowColor: colors.accent }]}>
+    <View style={[styles.bar, { backgroundColor: colors.bgCard, borderColor: colors.accent, shadowColor: colors.accent }]}>
       <TextInput
         style={[styles.input, { color: colors.textPrimary }]}
         placeholder="Напиши что-нибудь..."
@@ -129,7 +130,7 @@ export function ChatInput({ onSend, disabled }: Props) {
         onPress={handleSend}
         disabled={!text.trim() || disabled}
       >
-        <Text style={[styles.sendIcon, { color: colors.onAccent }]}>↑</Text>
+        <Ionicons name="arrow-up-outline" size={20} color={colors.onAccent} />
       </TouchableOpacity>
     </View>
   );
@@ -145,6 +146,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.sm,
     borderRadius: radius.lg,
+    borderWidth: 1.5,
     minHeight: 60,
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.08,
@@ -167,8 +169,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sendRoundBtn: { borderWidth: 0 },
-  sendIcon: { fontSize: 20, fontFamily: fontFamily.bold },
-  cancelIcon: { fontSize: 16, fontFamily: fontFamily.semibold },
   recordingIndicator: {
     flex: 1,
     flexDirection: 'row',
@@ -176,6 +176,6 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingHorizontal: spacing.sm,
   },
-  recDot: { fontSize: 14 },
+  recDot: { width: 8, height: 8, borderRadius: 4 },
   recTime: { ...typography.body, fontVariant: ['tabular-nums'] },
 });
