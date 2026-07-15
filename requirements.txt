@@ -2,7 +2,6 @@ fastapi>=0.115
 uvicorn[standard]>=0.30
 websockets>=12.0
 dishka>=1.3
-faststream[redis]>=0.5
 taskiq>=0.11
 taskiq-redis>=1.0
 sqlalchemy[asyncio]>=2.0

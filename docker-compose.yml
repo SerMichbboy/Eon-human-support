@@ -16,6 +16,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
@@ -29,6 +30,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    restart: unless-stopped
 
   migrate:
     build: .
@@ -70,6 +72,26 @@ services:
       DATABASE_URL: postgresql+asyncpg://eon:eon@postgres:5432/eon
       DATABASE_URL_SYNC: postgresql://eon:eon@postgres:5432/eon
       REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: eon-scheduler
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://eon:eon@postgres:5432/eon
+      DATABASE_URL_SYNC: postgresql://eon:eon@postgres:5432/eon
+      REDIS_URL: redis://redis:6379/0
+    command: ["taskiq", "scheduler", "src.infrastructure.tasks.broker:scheduler", "--fs-discover", "--tasks-pattern", "src/infrastructure/tasks/*.py"]
     depends_on:
       postgres:
         condition: service_healthy

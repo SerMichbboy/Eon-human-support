@@ -67,6 +67,7 @@ class UserKeyRepository(IUserKeyRepository):
         model.encrypted_key = key.encrypted_key
         model.salt = key.salt
         model.pbkdf2_c = key.pbkdf2_c
+        model.server_wrapped_key = key.server_wrapped_key
         model.created_at = key.created_at
         await self._session.flush()
 
@@ -74,7 +75,7 @@ class UserKeyRepository(IUserKeyRepository):
         model = await self._session.get(UserKeyModel, key_id)
         if not model:
             return None
-        return UserKey(id=model.id, encrypted_key=model.encrypted_key, salt=model.salt, pbkdf2_c=model.pbkdf2_c, created_at=model.created_at)
+        return _to_key_entity(model)
 
     async def get_by_user_id(self, user_id: UUID) -> UserKey | None:
         result = await self._session.execute(
@@ -85,13 +86,24 @@ class UserKeyRepository(IUserKeyRepository):
         model = result.scalar_one_or_none()
         if not model:
             return None
-        return UserKey(id=model.id, encrypted_key=model.encrypted_key, salt=model.salt, pbkdf2_c=model.pbkdf2_c, created_at=model.created_at)
+        return _to_key_entity(model)
 
     async def delete(self, key_id: UUID) -> None:
         model = await self._session.get(UserKeyModel, key_id)
         if model:
             await self._session.delete(model)
             await self._session.flush()
+
+
+def _to_key_entity(model: UserKeyModel) -> UserKey:
+    return UserKey(
+        id=model.id,
+        encrypted_key=model.encrypted_key,
+        salt=model.salt,
+        pbkdf2_c=model.pbkdf2_c,
+        server_wrapped_key=model.server_wrapped_key,
+        created_at=model.created_at,
+    )
 
 
 def _to_entity(model: UserModel) -> User:

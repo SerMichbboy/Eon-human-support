@@ -11,6 +11,7 @@ from src.domain.memory.repository import (
 )
 from src.domain.profile.entity import UserProfile
 from src.infrastructure.claude.client import ClaudeClient
+from src.infrastructure.crypto.aes import CryptoService
 from src.main.settings import Settings
 
 _ACTIVE_WINDOW_DAYS = 7
@@ -28,6 +29,7 @@ class BuildContext:
         weekly_repo: IWeeklySummaryRepository,
         embedding_repo: IMemoryEmbeddingRepository,
         claude: ClaudeClient,
+        crypto: CryptoService,
         settings: Settings,
     ) -> None:
         self._messages = message_repo
@@ -35,22 +37,40 @@ class BuildContext:
         self._weekly = weekly_repo
         self._embeddings = embedding_repo
         self._claude = claude
+        self._crypto = crypto
         self._test_mode = settings.mode.lower() == "test"
 
-    async def build_system_prompt(self, profile: UserProfile) -> str:
+    async def build_system_prompt(self, profile: UserProfile, companion_name: str) -> str:
         name = profile.basic_info.preferred_name or "друг"
         tone = profile.companion_preferences.tone.value
         directiveness = profile.companion_preferences.directiveness.value
         forbidden = profile.companion_preferences.forbidden_topics
 
-        profile_text = _format_profile(profile)
-
         if self._test_mode:
-            return f"Ты — Eon, компаньон для {name}. Отвечай по-русски, коротко и по делу."
+            # Same two signals as prod (style + who-you're-talking-to) — condensed to
+            # a couple of short clauses instead of a paragraph + full profile dump,
+            # since MODE=test runs against the metered API. Full quality resumes
+            # automatically once MODE=production (self-hosted, no per-token cost).
+            style_compact = _STYLE_INSTRUCTIONS_COMPACT.get(
+                profile.companion_preferences.communication_style.value,
+                _STYLE_INSTRUCTIONS_COMPACT["friend"],
+            )
+            facts = _format_profile_compact(profile)
+            prompt = (
+                f"Ты — {companion_name}, компаньон для {name}. Стиль общения: {style_compact}."
+            )
+            if facts:
+                prompt += f" Знаешь о нём: {facts}."
+            if forbidden:
+                prompt += f" Не затрагивай: {', '.join(forbidden)}."
+            prompt += " Отвечай по-русски, коротко и по делу."
+            return prompt
 
+        profile_text = _format_profile(profile)
         style = _style_instructions(profile.companion_preferences.communication_style.value)
         prompt = (
-            f"Ты — Eon, персональный компаньон для {name}. "
+            f"Ты — {companion_name}, персональный компаньон для {name}. "
+            f"Тебя зовут {companion_name} — именно так представляйся, если спросят твоё имя. "
             f"Твоя цель — быть рядом, когда человеку нужно выговориться, получить совет или просто не быть одному.\n"
             f"Ты не притворяешься человеком, но общаешься живо и без шаблонов. "
             f"Не используй смайлики в каждом сообщении. Не говори «конечно», «отличный вопрос», «я понимаю твои чувства». "
@@ -76,7 +96,7 @@ class BuildContext:
         return [{"role": m.role.value, "content": m.content} for m in messages]
 
     async def get_relevant_archive(
-        self, companion_id: UUID, query_embedding: list[float]
+        self, companion_id: UUID, query_embedding: list[float], raw_key: bytes | None
     ) -> str:
         """Find relevant older summaries via semantic search."""
         embeddings = await self._embeddings.search(companion_id, query_embedding, limit=3)
@@ -96,11 +116,40 @@ class BuildContext:
 
             for s in summaries:
                 period = getattr(s, "date", None) or getattr(s, "week_start", None)
-                parts.append(f"[{period}] {s.summary}")
+                text = s.summary
+                if raw_key:
+                    try:
+                        text = self._crypto.decrypt_field(text, raw_key)
+                    except Exception:
+                        continue
+                parts.append(f"[{period}] {text}")
 
         if not parts:
             return ""
         return "\n\n## Из более раннего общения\n" + "\n".join(parts)
+
+    async def get_relevant_archive_for_text(
+        self, companion_id: UUID, text: str, raw_key: bytes | None
+    ) -> str:
+        """Embeds `text` and pulls semantically relevant archive — skipped in test
+        mode to keep the minimal cost-optimized prompt from CLAUDE.md intact."""
+        if self._test_mode:
+            return ""
+        query_embedding = await self._claude.embed(text)
+        return await self.get_relevant_archive(companion_id, query_embedding, raw_key)
+
+
+def _format_profile_compact(profile: UserProfile) -> str:
+    """One short clause of the highest-signal facts — occupation and the single
+    most emotionally significant key event, if any. Used only in MODE=test; full
+    detail (values, close people, dreams, top-5 key_events, ...) is prod-only."""
+    bits = []
+    if profile.life_context.occupation:
+        bits.append(profile.life_context.occupation)
+    if profile.key_events:
+        top = max(profile.key_events, key=lambda e: e.emotional_weight)
+        bits.append(top.description)
+    return ", ".join(bits)
 
 
 def _format_profile(profile: UserProfile) -> str:
@@ -172,3 +221,14 @@ _STYLE_INSTRUCTIONS: dict[str, str] = {
 
 def _style_instructions(style: str) -> str:
     return _STYLE_INSTRUCTIONS.get(style, _STYLE_INSTRUCTIONS["friend"])
+
+
+# Same five roles, compressed to one clause each for MODE=test — full paragraphs
+# above are prod-only (self-hosted there, no per-token cost to economize on).
+_STYLE_INSTRUCTIONS_COMPACT: dict[str, str] = {
+    "listener": "слушай, не советуй, пока не попросят",
+    "friend": "тепло, по-дружески, совет — только если просят",
+    "mentor": "прямо и по делу, подталкивай к действию",
+    "mirror": "отражай вопросами, не давай готовых ответов",
+    "debater": "держи свою позицию, спорь, не соглашайся из вежливости",
+}

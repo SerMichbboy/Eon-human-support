@@ -10,6 +10,10 @@ class UserKey:
     salt: bytes           # PBKDF2 salt, 16 bytes
     pbkdf2_c: int         # PBKDF2 iteration count used at registration
     created_at: datetime
+    # Server-encrypted: AES-GCM(raw_key, MASTER_ENCRYPTION_KEY). Captured opportunistically
+    # from a live request (see CaptureServerKey) so background jobs can decrypt without the
+    # client online. None until the user's first chat connection after this field shipped.
+    server_wrapped_key: bytes | None = None
 
     @staticmethod
     def create(encrypted_key: bytes, salt: bytes, pbkdf2_c: int = 10_000) -> "UserKey":

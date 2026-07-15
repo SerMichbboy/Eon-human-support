@@ -57,7 +57,15 @@ class SendMessage:
         )
         await self._messages.save(user_msg)
 
-        system_prompt = await self._context.build_system_prompt(profile)
+        system_prompt = await self._context.build_system_prompt(profile, companion.name)
+        try:
+            system_prompt += await self._context.get_relevant_archive_for_text(
+                companion.id, text, raw_key
+            )
+        except Exception:
+            # Embedding provider hiccup — chat should degrade to "no archive
+            # recall this turn", not drop the whole connection.
+            pass
         history = await self._context.get_recent_messages(companion.id)
 
         if raw_key:

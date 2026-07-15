@@ -6,7 +6,7 @@
 Eon-human-support/
 ├── src/                  # Python backend (DDD)
 ├── eon-mobile/           # React Native frontend (Expo)
-├── docker-compose.yml    # postgres + redis + api + worker
+├── docker-compose.yml    # postgres + redis + api + worker + scheduler
 ├── Dockerfile            # API image
 ├── Dockerfile.worker     # TaskIQ worker image
 ├── alembic.ini
@@ -28,16 +28,21 @@ async def handler(repo: Annotated[IRepo, FromDishka()], user_id: UUID = Depends(
     ...
 ```
 
-**WebSocket handlers cannot use `@inject`** — Dishka creates `Scope.SESSION` for WebSocket connections but repositories are `Scope.REQUEST`. Use manual container management instead:
+**WebSocket handlers cannot use `@inject`** — Dishka creates `Scope.SESSION` for WebSocket connections but repositories are `Scope.REQUEST`. Use manual container management instead — **open a fresh scope per inbound message, not one scope for the whole connection**:
 
 ```python
 @router.websocket("/chat")
 async def chat_ws(websocket: WebSocket):
     container = websocket.app.state.dishka_container
-    async with container() as request_container:
-        repo = await request_container.get(IRepo)
-        ...
+    while True:
+        data = await websocket.receive_json()   # no scope held while waiting here
+        async with container() as request_container:
+            repo = await request_container.get(IRepo)
+            ...
+        # scope (and its pooled DB connection) closes before the next receive_json()
 ```
+
+A WS connection can sit open for hours between messages. Opening the Dishka scope once for the entire connection (as an earlier version of this handler did) pins a pooled DB connection for that whole time — with the default SQLAlchemy pool (`pool_size=10, max_overflow=15`, see `src/infrastructure/db/engine.py`), a few dozen simultaneously-open (even idle) chats exhausts the pool and new WS handshakes start blocking. Scoping per-message keeps a connection checked out only for the duration of actually processing one message.
 
 See `src/presentation/ws/chat.py` for the full pattern.
 
@@ -53,12 +58,15 @@ Use cases are in `src/application/<domain>/`. They only depend on domain interfa
 
 ### Memory Architecture
 
-Messages are stored encrypted. After saving, a FastStream event triggers background processing:
+Messages are stored encrypted. Compression is driven by a **TaskIQ cron scheduler** (own process, `taskiq scheduler ... src.infrastructure.tasks.broker:scheduler`, `docker-compose.yml`'s `scheduler` service) — not by a per-message event. Two nightly cron tasks in `src/infrastructure/tasks/memory_compression.py` discover which companions need compression and fan out to the per-companion tasks:
 
-1. **Raw messages**: stored for 7 days
-2. **Daily summaries**: TaskIQ job runs nightly, compresses day → summary (days 8–30)
-3. **Weekly summaries**: compresses week → summary (days 31–180)
-4. **Semantic search**: pgvector embeddings via `IMemoryEmbeddingRepository`
+1. **Raw messages**: stored for 7 days (`BuildContext._ACTIVE_WINDOW_DAYS`)
+2. **Daily summaries**: `compress_daily_memories_task` (03:30 daily) compresses the day that just fell out of the 7-day window (day 8) into a summary, via `generate_daily_summary_task`
+3. **Weekly summaries**: `compress_weekly_memories_task` (Mon 04:00) compresses week-old daily summaries (day 31+) into a weekly summary, via `generate_weekly_summary_task`
+4. **Semantic search**: each daily/weekly summary is embedded (`ClaudeClient.embed()`, vsegpt `openai/text-embedding-3-small`) and stored via `IMemoryEmbeddingRepository`. `SendMessage` embeds the user's current message and pulls the top-3 relevant summaries into the system prompt (`BuildContext.get_relevant_archive_for_text`) — skipped in `MODE=test` to keep the minimal prompt.
+5. After a daily summary is generated, `update_profile_from_dialogue_task` re-extracts facts from it to keep the profile current.
+
+**Server-side key for background jobs**: the app is E2E — `UserKeyModel.encrypted_key` is wrapped client-side with a PBKDF2(password)-derived key the server can never decrypt. Background cron tasks instead use `UserKeyModel.server_wrapped_key`, a *separate* copy wrapped with `MASTER_ENCRYPTION_KEY`, captured opportunistically the first time a user opens a WS chat connection (`CaptureServerKey` use case, called from `src/presentation/ws/chat.py`). This is a deliberate weakening of the original full-E2E design (see migration `0003_e2e_keys.py`) traded for working nightly memory compression — a `MASTER_ENCRYPTION_KEY` compromise now exposes message content, not just a DB dump. Compression silently no-ops for a user until their first chat connection captures the key (`server_wrapped_key IS NULL`).
 
 `BuildContext` in `src/application/chat/build_context.py` assembles the full context window before each Claude call.
 
@@ -224,6 +232,15 @@ Radius values: `sm: 12`, `md: 18`, `lg: 28`, `full: 9999`.
 
 If a future pass wants the *real* thing (background refraction + gyroscope-reactive highlight), that's a `@shopify/react-native-skia` (SkSL shader) project — a much larger lift than tuning `GlassRim`, not attempted here.
 
+### Icons
+
+Always `Ionicons` from `@expo/vector-icons` — never a raw Unicode glyph (`✕`, `↑`, `✓`, `●`) or an emoji (`🎙`, `🔒`, `✏️`) rendered inside a `<Text>`. Mixing icon families (or an emoji's full-color platform glyph next to a monochrome vector icon) is exactly what reads as "inconsistent" — a plain `Text` glyph also silently ignores the theme's `color` token half the time, since emoji ignore `color` entirely and a forgotten `color` prop on a bare glyph defaults to platform black.
+
+- **Prefer the `-outline` variant** of a glyph when Ionicons offers one (`settings-outline`, `close-outline`, `arrow-up-outline`, `mic-outline`, `lock-closed-outline`, `person-outline`, `mail-outline`, `phone-portrait-outline`, `sunny-outline`/`moon-outline`) — it's the thin, uniform-stroke weight the rest of the app already uses. Fall back to the plain name only when Ionicons has no outline form for that glyph (`chevron-back`, `chevron-down` — chevrons only ship as one weight).
+- **Exception: tiny badge-scale glyphs** (≲12px, e.g. the selected-preset checkmark in `SettingsScreen.tsx`) use the solid/non-outline weight (`checkmark`, not `checkmark-outline`) — outline strokes are thin enough to visually disappear at that size.
+- **Status/recording dots are plain colored `View` circles**, not a `●` text glyph — see `ChatScreen.tsx`'s `statusDot`, `ChatInput.tsx`'s `recDot`, `VoiceButton.tsx`'s `activeDot`. A shape-based dot respects the theme color reliably; a text bullet character's rendered size/baseline varies by font and is one more thing that can silently default to the wrong color.
+- Size by context, not by feel: header/nav icons ~20–22px, small inline icons (account-type glyph next to text, mode-tab icon) ~15–16px, tiny badge icons ~10–12px. Color via `colors.textSecondary` (nav/header icons) or `colors.textMuted` (quieter/inline icons) — same tokens already used for icon-adjacent text, so an icon never looks like it's from a different palette than its label.
+
 ### Settings Store
 
 **`src/shared/store/settings.ts`** (Zustand + SecureStore):
@@ -233,7 +250,7 @@ If a future pass wants the *real* thing (background refraction + gyroscope-react
 - `themeModeFromValue(v)` — derives the discrete `'dark' | 'light'` label needed by platform APIs that can't do a continuum (`BlurView`'s `tint` prop, sun/moon iconography): `v < 0.5 ? 'dark' : 'light'`.
 - `hydrate()` — called on app start, restores preset + `theme_value`; migrates a pre-existing install's old binary `theme_mode` key to `0`/`1` if `theme_value` was never written.
 
-Theme control is a plain iOS-style switch (`ThemeToggle` in `SettingsScreen.tsx`) — tap only, no drag. Its slide/color animation is local to the component (reanimated, UI-thread only) and doesn't touch the app-wide theme value until the tap completes, so it can't cause the re-render storm a continuous draggable slider did.
+Theme control is a moon/sun segmented picker (`ThemeToggle` in `SettingsScreen.tsx`), not a generic switch — a plain iOS-style switch was tried and read as an off-the-shelf system control rather than something native to the app; the segmented picker reuses the same "accent-filled capsule marks the active choice" language as `StyleCard`/`PresetSwatch` instead. Tap only, no drag. Its slide animation is local to the component (reanimated, UI-thread only) and doesn't touch the app-wide theme value until the tap completes, so it can't cause the re-render storm a continuous draggable slider did.
 
 **Theme crossfade — `theme/ThemeAnimation.tsx`**: `ThemeAnimationProvider` (mounted once at the app root, `core/index.tsx`) holds a Reanimated shared value that mirrors the store's `themeValue` via `withTiming` (550ms, easeInOutQuad) whenever it changes, exposed via `useAnimatedThemeValue()`. Components that want a genuinely smooth crossfade (currently just `Glass.tsx`) read this shared value inside `useAnimatedStyle` and interpolate colors with `interpolateColor` — the whole animation runs on the UI thread, no JS re-renders, no bridge traffic per frame. Plain `useColors()`/`useMaterial()` consumers (background fills, text, icons) still just snap instantly on the store flip — deliberate: converting every themed component in the app to this pattern was out of scope, and the highest-cost surfaces (blur panels) are the ones covered. An earlier attempt used a `ThemeTransitionOverlay` component (masking the instant snap with a full-screen fade veil) — removed; it looked like a mask, not a crossfade, and was made fully obsolete once colors started animating for real.
 
@@ -247,9 +264,28 @@ Audio is recorded as **WAV** (16 kHz, mono, LINEAR_PCM on iOS). Never use m4a �
 
 `useAudioRecorder` states: `idle | recording | locked | done`
 
+### Onboarding — Merged Text/Voice Input
+
+`OnboardingScreen` used to have a separate "Текст"/"Голос" mode-toggle per step, with voice recording going straight through `onboardingApi.voiceStep` (transcribe + save server-side in one shot, frontend never sees the text). Both are gone:
+
+- **One input, not two modes.** The `TextInput` is always present; `VoiceButton` sits inline beside it (`inputRow` style) rather than behind a mode switch. Recording (hold, slide up to lock — same `VoiceButton` gesture as `ChatInput`) transcribes into that same field via `/voice/transcribe` (the same endpoint `ChatInput` uses) instead of saving directly — the user sees and can edit the transcription before pressing "Сохранить", rather than trusting a raw voice-to-text pass straight into their profile. `isTranscribing` disables the field and shows a spinner in the `VoiceButton`'s slot while the request is in flight.
+- `onboardingApi.voiceStep` (and the backend's `/onboarding/voice-step` direct-save flow) is no longer called from the frontend — removed as dead code from `onboardingApi`, though the backend route itself was left alone.
+- **Swipe between steps**: same whole-screen `PanResponder` pattern as Chat/Settings/Profile (capture phase, axis-dominance, `TouchRipple` feedback), gated off while `isRecordingActive` (recording isn't step-scoped, so switching questions mid-recording would be confusing). It only moves the local `step` pointer — same as the existing progress-dot navigation — nothing is saved by swiping, so answers typed on other steps are preserved in the `answers` state either way.
+- **`bounces={false}` / `overScrollMode="never"`** on the ScrollView: onboarding's content is short and vertically centered (`justifyContent: 'center'`), so there was nothing to actually scroll — every up/down drag just triggered the elastic rubber-band overscroll effect, which visibly "stretched" every bordered box on screen. Disabling bounce removes that distortion since there's no legitimate scroll content for it to apply to anyway.
+
+### Password Visibility Toggle
+
+`Input` (`src/shared/components/Input.tsx`) takes an optional `rightElement` prop — an absolutely-positioned overlay on the input's right edge (`inputWithRightElement` adds the matching `paddingRight` so typed text doesn't run under it). `LoginScreen`/`RegisterScreen` use it for a show/hide password `IconButton` (`eye-outline` / `eye-off-outline`), toggling `secureTextEntry`. Generic prop, not password-specific, in case another input ever needs a trailing icon.
+
 ### Communication Style Picker
 
 Both `OnboardingScreen` (step 5) and `SettingsScreen` show a horizontal/vertical list of 5 style cards. Tapping a card immediately updates local state AND fires the server mutation. The server `step` field must be `"companion_preferences"` in the PATCH body.
+
+`SettingsScreen`'s `StyleCard` grows the selected card by 15% (`STYLE_GROWTH`), the same "selected item grows" language as the chat-background `PresetSwatch` (`SELECTED_GROWTH`, 50%) — but since these are full-width rows in a vertical column rather than same-width boxes in a row, there's no spare width for the selected one to expand into; the "size" that grows is the card's own `padding` (taller/roomier), animated as a direct shared-value style (not `layout={LinearTransition}`, same reasoning as the preset swatch).
+
+Cards show only the label by default; each style's 3-4 short bullet points (`STYLE_OPTIONS[].points`) reveal smoothly and only for the selected card, via the standard RN "auto-height" pattern — the bullets are always mounted (so `onLayout` can measure their true natural height once), and a wrapper `View` with `overflow: hidden` animates its own `height`/`opacity` between `0` and that measured value. A fixed height wasn't an option: bullet text wraps differently across device widths, so only a measured height avoids either clipping text or leaving dead space.
+
+The reveal leads with a small `EonLogo` tinted via `useStyleAccent(id)` (`theme/styleAccent.ts`) plus a "Цвет Eon в чате" caption, and the bullet dots reuse that same color — teaching the connection between the logo tint in chat and the selected communication style right where the style is picked, rather than leaving the user to notice the shift on their own. The card's own selected-state border/background stay the plain app-wide `colors.accent` — that signals "you picked this," a separate concern from "this is this style's chat color."
 
 ### Feature-Sliced Design
 
@@ -335,6 +371,16 @@ Swipe gestures (PanResponder on both header rows):
 Settings is a full navigation screen (`src/features/chat/screens/SettingsScreen.tsx`), not a modal. Registered in AppNavigator with `animation: 'slide_from_left'` — slides in from the left to mirror the swipe direction.
 
 **Important**: do NOT add `gestureDirection: 'horizontal-inverted'` — it crashes on the current native stack version.
+
+### Settings/Profile shared section pattern
+
+`SettingsScreen` and `ProfileScreen` (`src/features/profile/screens/ProfileScreen.tsx`) both use the same custom `GlassPanel` header (`chevron-back` `IconButton` + centered `typography.h2` title + equal-width spacer view, `headerShown: false` set via `useLayoutEffect`) instead of the native-stack default — `ProfileScreen` used to be the one screen still on the plain native header, fixed by bringing it in line with the other two.
+
+Content is grouped into labeled sections (`sectionLabel`: `typography.bodySmall`, uppercase, `letterSpacing: 1`), separated by a thin top-border divider (`sectionDivider`: `marginTop: spacing.sm, paddingTop: spacing.lg, borderTopWidth: 1`) on every section after the first — not bare whitespace, and not every piece of content boxed in its own `GlassCard`.
+
+`ProfileScreen`'s login credential (phone/email) sits as its own quiet flat row (`accountRow`) above the profile-data `GlassCard`, under the shared "Профиль" heading — not inside that card. It was briefly merged in as the credential's own first `ProfileRow`, but a login detail isn't one of the "facts about you" (name, city, values, ...) that card holds, and reads better kept visually distinct rather than folded into that table. `ProfileRow` itself no longer shows `communication_style` — that's fully controlled from `SettingsScreen` already, so a second read-only copy of it here was pure duplication, not a fact worth a table row.
+
+`ProfileRow` is icon-led, not a two-column table: a small `Ionicons` glyph + uppercase caption above, the value below — was originally a fixed-110px-label-then-value row, which read as dry and squeezed longer multiline values (close_people, values, coping_mechanisms, ...) against that narrow label column.
 
 ### ChatInput — Floating Rounded Bar
 

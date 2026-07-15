@@ -4,9 +4,7 @@ from dishka.integrations.fastapi import setup_dishka
 from fastapi import FastAPI
 
 from src.main.ioc.container import create_container
-from src.infrastructure.stream.broker import create_broker
-from src.infrastructure.stream.handlers.on_message_saved import register_handlers
-from src.infrastructure.tasks.broker import create_task_broker, task_broker
+from src.infrastructure.tasks.broker import task_broker
 from src.main.settings import Settings
 
 
@@ -14,21 +12,12 @@ from src.main.settings import Settings
 async def lifespan(app: FastAPI):
     settings: Settings = app.state.settings
 
-    # Wire TaskIQ broker URL before tasks are used
     task_broker.is_worker_process = False
-    task_broker.redis_url = settings.redis_url  # type: ignore[attr-defined]
-    real_task_broker = create_task_broker(settings)
-    await real_task_broker.startup()
-
-    # FastStream broker
-    stream_broker = create_broker(settings)
-    register_handlers(stream_broker)
-    await stream_broker.start()
+    await task_broker.startup()
 
     yield
 
-    await stream_broker.close()
-    await real_task_broker.shutdown()
+    await task_broker.shutdown()
     await app.state.dishka_container.close()
 
 

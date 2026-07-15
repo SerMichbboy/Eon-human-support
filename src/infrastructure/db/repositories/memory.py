@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select
@@ -141,6 +141,25 @@ class DailySummaryRepository(IDailySummaryRepository):
             for m in result.scalars()
         ]
 
+    async def get_companion_ids_needing_summary(self, day: date) -> list[UUID]:
+        day_start = datetime.combine(day, datetime.min.time())
+        day_end = day_start + timedelta(days=1)
+        result = await self._session.execute(
+            select(MessageModel.companion_id)
+            .distinct()
+            .outerjoin(
+                DailySummaryModel,
+                (DailySummaryModel.companion_id == MessageModel.companion_id)
+                & (DailySummaryModel.date == day),
+            )
+            .where(
+                MessageModel.created_at >= day_start,
+                MessageModel.created_at < day_end,
+                DailySummaryModel.id.is_(None),
+            )
+        )
+        return list(result.scalars())
+
 
 class WeeklySummaryRepository(IWeeklySummaryRepository):
     def __init__(self, session: AsyncSession) -> None:
@@ -188,6 +207,25 @@ class WeeklySummaryRepository(IWeeklySummaryRepository):
             )
             for m in result.scalars()
         ]
+
+    async def get_companion_ids_needing_summary(
+        self, week_start: date, week_end: date
+    ) -> list[UUID]:
+        result = await self._session.execute(
+            select(DailySummaryModel.companion_id)
+            .distinct()
+            .outerjoin(
+                WeeklySummaryModel,
+                (WeeklySummaryModel.companion_id == DailySummaryModel.companion_id)
+                & (WeeklySummaryModel.week_start == week_start),
+            )
+            .where(
+                DailySummaryModel.date >= week_start,
+                DailySummaryModel.date <= week_end,
+                WeeklySummaryModel.id.is_(None),
+            )
+        )
+        return list(result.scalars())
 
 
 class MemoryEmbeddingRepository(IMemoryEmbeddingRepository):

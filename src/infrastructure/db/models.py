@@ -28,6 +28,7 @@ class UserKeyModel(Base):
     encrypted_key: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     salt: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     pbkdf2_c: Mapped[int] = mapped_column(Integer, nullable=False, default=100_000)
+    server_wrapped_key: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     user: Mapped["UserModel"] = relationship(back_populates="encryption_key")

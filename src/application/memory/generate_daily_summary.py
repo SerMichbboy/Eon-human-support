@@ -1,8 +1,12 @@
 from datetime import date
 from uuid import UUID
 
-from src.domain.memory.entity import DailySummary, Message, MessageRole
-from src.domain.memory.repository import IDailySummaryRepository, IMessageRepository
+from src.domain.memory.entity import DailySummary, MemoryEmbedding, Message, MessageRole, SummarySourceType
+from src.domain.memory.repository import (
+    IDailySummaryRepository,
+    IMemoryEmbeddingRepository,
+    IMessageRepository,
+)
 from src.infrastructure.claude.client import ClaudeClient
 from src.infrastructure.crypto.aes import CryptoService
 
@@ -12,11 +16,13 @@ class GenerateDailySummary:
         self,
         message_repo: IMessageRepository,
         daily_repo: IDailySummaryRepository,
+        embedding_repo: IMemoryEmbeddingRepository,
         claude: ClaudeClient,
         crypto: CryptoService,
     ) -> None:
         self._messages = message_repo
         self._daily = daily_repo
+        self._embeddings = embedding_repo
         self._claude = claude
         self._crypto = crypto
 
@@ -30,9 +36,12 @@ class GenerateDailySummary:
             dialogue = _format_dialogue(day_messages, raw_key, self._crypto)
             summary_text = await self._claude.chat(
                 system=(
-                    "Ты анализируешь диалог между пользователем и AI-компаньоном. "
-                    "Напиши краткое резюме дня: о чём говорили, какие эмоции звучали, "
-                    "что важного было сказано. Максимум 5 предложений. Без оценок."
+                    "Ты анализируешь диалог между пользователем и AI-компаньоном за один день. "
+                    "Напиши резюме дня, но сохрани конкретику — имена, цифры, точные события, "
+                    "признания, детали, — а не только общую тему и эмоциональный фон. Смысл в том, "
+                    "чтобы Эон мог через месяцы напомнить об этом дне и удивить, что помнит именно "
+                    "детали, а не общие слова. Не пиши «говорили о работе» — пиши, что именно "
+                    "случилось на работе. Максимум 5 предложений. Без оценок и советов."
                 ),
                 messages=[{"role": "user", "content": dialogue}],
                 max_tokens=512,
@@ -41,6 +50,19 @@ class GenerateDailySummary:
         encrypted_summary = self._crypto.encrypt_field(summary_text, raw_key)
         summary = DailySummary.create(companion_id, day, encrypted_summary)
         await self._daily.save(summary)
+
+        if day_messages:
+            vector = await self._claude.embed(summary_text)
+            embedding = MemoryEmbedding.create(
+                companion_id=companion_id,
+                source_type=SummarySourceType.DAILY,
+                source_id=summary.id,
+                embedding=vector,
+                period_start=day,
+                period_end=day,
+            )
+            await self._embeddings.save(embedding)
+
         return summary
 
 

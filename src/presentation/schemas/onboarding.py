@@ -11,6 +11,11 @@ class ProfileStepRequest(BaseModel):
     companion_preferences: dict | None = None
 
 
+class TextStepRequest(BaseModel):
+    step: str
+    text: str
+
+
 class ExtractFactsResponse(BaseModel):
     step_data: dict
     needs_confirmation: list[str]

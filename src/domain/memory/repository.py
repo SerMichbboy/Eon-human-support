@@ -34,6 +34,11 @@ class IDailySummaryRepository(ABC):
         self, companion_id: UUID, date_from: date, date_to: date
     ) -> list[DailySummary]: ...
 
+    @abstractmethod
+    async def get_companion_ids_needing_summary(self, day: date) -> list[UUID]:
+        """Companions with messages on `day` but no daily summary for it yet."""
+        ...
+
 
 class IWeeklySummaryRepository(ABC):
     @abstractmethod
@@ -43,6 +48,13 @@ class IWeeklySummaryRepository(ABC):
     async def get_range(
         self, companion_id: UUID, date_from: date, date_to: date
     ) -> list[WeeklySummary]: ...
+
+    @abstractmethod
+    async def get_companion_ids_needing_summary(
+        self, week_start: date, week_end: date
+    ) -> list[UUID]:
+        """Companions with daily summaries in [week_start, week_end] but no weekly summary yet."""
+        ...
 
 
 class IMemoryEmbeddingRepository(ABC):

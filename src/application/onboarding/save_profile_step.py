@@ -53,7 +53,12 @@ class SaveProfileStep:
             profile.struggles = _merge_struggles(profile.struggles, data.struggles)
 
         if data.key_events:
+            existing_descriptions = {e.description for e in profile.key_events}
             for ev in data.key_events:
+                # Guards against duplicate entries on task redelivery/retry — the
+                # same day's summary re-analysed twice would otherwise append twice.
+                if ev["description"] in existing_descriptions:
+                    continue
                 profile.key_events.append(
                     KeyEvent(
                         description=ev["description"],

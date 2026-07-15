@@ -9,4 +9,4 @@ RUN uv pip install --system --no-cache -r requirements.txt
 
 COPY . .
 
-CMD ["taskiq", "worker", "src.infrastructure.tasks.broker:task_broker", "--tasks-pattern", "src/infrastructure/tasks/*.py"]
+CMD ["taskiq", "worker", "src.infrastructure.tasks.broker:task_broker", "--fs-discover", "--tasks-pattern", "src/infrastructure/tasks/*.py"]

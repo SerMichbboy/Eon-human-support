@@ -12,6 +12,13 @@ class Settings(BaseSettings):
     database_url_sync: str
     redis_url: str = "redis://localhost:6379/0"
 
+    # Postgres max_connections is finite and shared across every process that
+    # connects (api, worker, scheduler) — keep pool_size+max_overflow per process
+    # comfortably under max_connections / number of processes. See engine.py.
+    db_pool_size: int = 10
+    db_max_overflow: int = 15
+    db_pool_recycle_seconds: int = 1800
+
     master_encryption_key: str  # base64-encoded 32 bytes
 
     jwt_access_token_expire_minutes: int = 15

@@ -3,17 +3,20 @@ from src.infrastructure.claude.client import ClaudeClient
 from src.infrastructure.stt.whisper import WhisperSTT
 
 
-class ExtractFactsFromVoice:
-    def __init__(self, stt: WhisperSTT, claude: ClaudeClient) -> None:
-        self._stt = stt
+class ExtractFactsFromText:
+    """Runs one free-text onboarding answer through the LLM to split it across
+    the right profile fields (e.g. "работаю программистом, живу с женой" ->
+    occupation + family_status separately), instead of the caller having to
+    guess which single field a broad answer belongs under."""
+
+    def __init__(self, claude: ClaudeClient) -> None:
         self._claude = claude
 
-    async def execute(self, audio_bytes: bytes, step: str) -> tuple[ProfileStepData, list[str]]:
+    async def execute(self, text: str, step: str) -> tuple[ProfileStepData, list[str]]:
         """
         Returns extracted ProfileStepData and a list of fields needing confirmation.
         """
-        transcript = await self._stt.transcribe(audio_bytes)
-        raw = await self._claude.extract_facts(transcript, step)
+        raw = await self._claude.extract_facts(text, step)
 
         needs_confirmation: list[str] = []
         confirmed: dict = {}
@@ -35,3 +38,13 @@ class ExtractFactsFromVoice:
             companion_preferences=confirmed.get("companion_preferences"),
         )
         return step_data, needs_confirmation
+
+
+class ExtractFactsFromVoice:
+    def __init__(self, stt: WhisperSTT, claude: ClaudeClient) -> None:
+        self._stt = stt
+        self._text_extractor = ExtractFactsFromText(claude)
+
+    async def execute(self, audio_bytes: bytes, step: str) -> tuple[ProfileStepData, list[str]]:
+        transcript = await self._stt.transcribe(audio_bytes)
+        return await self._text_extractor.execute(transcript, step)
