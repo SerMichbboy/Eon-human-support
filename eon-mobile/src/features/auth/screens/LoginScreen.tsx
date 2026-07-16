@@ -9,10 +9,10 @@ import { EonLogo } from '@/shared/components/EonLogo';
 import { FullscreenLoader } from '@/shared/components/FullscreenLoader';
 import { Input } from '@/shared/components/Input';
 import { IconButton } from '@/shared/components/IconButton';
-import { useColors, fontFamily, radius, spacing, typography } from '@/shared/theme';
+import { useColors, spacing, typography } from '@/shared/theme';
 import { useSettingsStore } from '@/shared/store/settings';
 import { AuthStackParams } from '@/core/navigation/AuthNavigator';
-import { useLoginEmail, useLoginPhone } from '../hooks/useLogin';
+import { useLogin } from '../hooks/useLogin';
 
 type Props = NativeStackScreenProps<AuthStackParams, 'Login'>;
 
@@ -20,25 +20,30 @@ export function LoginScreen({ navigation }: Props) {
   const colors = useColors();
   const themeValue = useSettingsStore((s) => s.themeValue);
   const toggleThemeExtreme = useSettingsStore((s) => s.toggleThemeExtreme);
-  const [mode, setMode] = useState<'email' | 'phone'>('email');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  const loginEmail = useLoginEmail();
-  const loginPhone = useLoginPhone();
-  const isLoading = loginEmail.isPending || loginPhone.isPending;
-  const error = loginEmail.error || loginPhone.error;
+  const login = useLogin();
 
-  const handleLogin = () => {
-    if (mode === 'email') loginEmail.mutate({ email, password });
-    else loginPhone.mutate({ phone, password });
+  const handleLogin = async () => {
+    try {
+      await login.mutateAsync({ identifier, password });
+      // Success — RootNavigator swaps to AppNavigator on its own once
+      // setTokens() flips isAuthenticated, no explicit navigation needed.
+    } catch (e: any) {
+      if (e?.response?.status === 403) {
+        // Registered but never verified — send them to enter the code
+        // instead of just showing "account not verified" as a dead end.
+        navigation.navigate('VerifyCode', { identifier, password, autoResend: true });
+      }
+      // Other errors stay visible via login.error below.
+    }
   };
 
   return (
     <>
-      <FullscreenLoader visible={isLoading} message="Открываем твои данные…" />
+      <FullscreenLoader visible={login.isPending} message="Открываем твои данные…" />
       <SafeAreaView style={[styles.root, { backgroundColor: colors.bg }]} edges={['top']}>
         {/* Top bar */}
         <View style={styles.topBar}>
@@ -62,30 +67,15 @@ export function LoginScreen({ navigation }: Props) {
             <Text style={[styles.title, { color: colors.textPrimary }]}>Привет</Text>
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Я рад, что ты здесь</Text>
 
-            <View style={styles.modeRow}>
-              {(['email', 'phone'] as const).map((m) => (
-                <Pressable
-                  key={m}
-                  style={[
-                    styles.modeBtn,
-                    { borderColor: mode === m ? colors.accent : colors.border },
-                    mode === m && { backgroundColor: colors.accentMuted },
-                  ]}
-                  onPress={() => setMode(m)}
-                >
-                  <Text style={[styles.modeBtnText, { color: mode === m ? colors.accent : colors.textSecondary }, mode === m && { fontFamily: fontFamily.semibold }]}>
-                    {m === 'email' ? 'Email' : 'Телефон'}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-
             <View style={styles.form}>
-              {mode === 'email' ? (
-                <Input label="Email" placeholder="you@example.com" autoCapitalize="none" keyboardType="email-address" value={email} onChangeText={setEmail} />
-              ) : (
-                <Input label="Телефон" placeholder="+79001234567" keyboardType="phone-pad" value={phone} onChangeText={setPhone} />
-              )}
+              <Input
+                label="Email или телефон"
+                placeholder="you@example.com или +79001234567"
+                autoCapitalize="none"
+                autoCorrect={false}
+                value={identifier}
+                onChangeText={setIdentifier}
+              />
               <Input
                 label="Пароль"
                 placeholder="••••••••"
@@ -98,8 +88,10 @@ export function LoginScreen({ navigation }: Props) {
                   </IconButton>
                 }
               />
-              {error && <Text style={[styles.error, { color: colors.error }]}>Неверный логин или пароль</Text>}
-              <Button title="Войти" onPress={handleLogin} />
+              {login.error && (login.error as any)?.response?.status !== 403 && (
+                <Text style={[styles.error, { color: colors.error }]}>Неверный логин или пароль</Text>
+              )}
+              <Button title="Войти" onPress={handleLogin} loading={login.isPending} />
             </View>
 
             <Pressable onPress={() => navigation.navigate('Register')}>
@@ -127,9 +119,6 @@ const styles = StyleSheet.create({
   scroll: { flexGrow: 1, justifyContent: 'center', padding: spacing.xl },
   title: { ...typography.h1, marginBottom: spacing.xs },
   subtitle: { ...typography.body, marginBottom: spacing.xl },
-  modeRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },
-  modeBtn: { flex: 1, paddingVertical: spacing.sm, borderRadius: radius.sm, borderWidth: 1, alignItems: 'center' },
-  modeBtnText: { ...typography.bodySmall },
   form: { gap: spacing.md, marginBottom: spacing.xl },
   error: { ...typography.bodySmall },
   link: { ...typography.bodySmall, textAlign: 'center' },

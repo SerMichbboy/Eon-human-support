@@ -25,6 +25,7 @@ import { VoiceButton } from '@/features/voice/components/VoiceButton';
 import { useAudioRecorder } from '@/features/voice/hooks/useAudioRecorder';
 import { profileApi } from '@/features/profile/api';
 import { onboardingApi } from '../api';
+import { RecordingOverlay } from '../components/RecordingOverlay';
 
 type Props = NativeStackScreenProps<AppStackParams, 'Onboarding'>;
 
@@ -108,6 +109,21 @@ export function OnboardingScreen({ navigation }: Props) {
     }
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [isRecordingActive]);
+
+  // Same reasoning as ChatInput's identical fix: swapping to the locked row
+  // the instant `recorder.state` flips to 'locked' means the swap happens
+  // *while the slide-up-to-lock drag is still in flight* — finger often
+  // still moving, VoiceButton's own spring-back not yet settled. That's what
+  // read as jerky, not the fade itself. Waiting a beat lets the gesture
+  // settle before the surrounding row changes shape.
+  const [showLockedUI, setShowLockedUI] = useState(false);
+  useEffect(() => {
+    if (recorder.state === 'locked') {
+      const t = setTimeout(() => setShowLockedUI(true), 280);
+      return () => clearTimeout(t);
+    }
+    setShowLockedUI(false);
+  }, [recorder.state]);
 
   // Swipe between steps — same whole-area PanResponder pattern as Chat/
   // Settings/Profile (capture phase, axis-dominance so it doesn't fight the
@@ -281,74 +297,76 @@ export function OnboardingScreen({ navigation }: Props) {
           </View>
         ) : (
           <View style={styles.textInputRow}>
-            {recorder.state === 'locked' ? (
-              <View style={styles.lockedRow}>
-                <Pressable
-                  style={[styles.roundBtn, { backgroundColor: colors.bgInput, borderColor: colors.border }]}
-                  onPress={recorder.cancel}
-                >
-                  <Ionicons name="close-outline" size={18} color={colors.textMuted} />
-                </Pressable>
-                <Text style={[styles.voiceHint, { color: colors.textPrimary }]}>
-                  Запись идёт · {formatTime(seconds)}
-                </Text>
-                <Pressable
-                  style={[styles.roundBtn, styles.roundBtnSend, { backgroundColor: colors.accent }]}
-                  onPress={handleStopRecording}
-                >
-                  <Ionicons name="arrow-up-outline" size={20} color={colors.onAccent} />
-                </Pressable>
-              </View>
-            ) : (
-              // Text field is always here — voice is just an inline mic
-              // button beside it, not a separate mode. Recording (tap-hold,
-              // slide up to lock) transcribes into this same field on
-              // release instead of submitting directly, so it can be
-              // reviewed/edited before "Сохранить".
-              <View style={styles.inputRow}>
-                <TextInput
-                  style={[styles.textInput, { backgroundColor: colors.bgCard, borderColor: colors.border, color: colors.textPrimary }]}
-                  placeholder={isTranscribing ? 'Распознаю голос...' : current.placeholder}
-                  placeholderTextColor={colors.textMuted}
-                  multiline
-                  value={text}
-                  onChangeText={setText}
-                  editable={!isTranscribing}
-                  returnKeyType="default"
+            {/* Once locked, a full-screen `RecordingOverlay` takes over (see
+                below, rendered as a sibling outside the ScrollView) — a
+                hands-free recording has no active touch to protect, so it
+                gets the whole screen instead of a cramped in-row control.
+                This row only ever needs to render its normal (typing/
+                still-holding-to-record) contents now — there's no second,
+                absolutely-positioned "locked" child anymore, which used to
+                collapse this row to 0 height (nothing left in normal flow to
+                size it) and let it visually overlap the button below. */}
+            <View style={styles.inputRow}>
+              <TextInput
+                style={[styles.textInput, { backgroundColor: colors.bgCard, borderColor: colors.border, color: colors.textPrimary }]}
+                placeholder={isTranscribing ? 'Распознаю голос...' : current.placeholder}
+                placeholderTextColor={colors.textMuted}
+                multiline
+                value={text}
+                onChangeText={setText}
+                editable={!isTranscribing}
+                returnKeyType="default"
+              />
+              {isTranscribing ? (
+                <View style={styles.voiceBtnSlot}>
+                  <ActivityIndicator color={colors.accent} />
+                </View>
+              ) : (
+                <VoiceButton
+                  state={recorder.state}
+                  onPressIn={recorder.start}
+                  onPressOut={handleStopRecording}
+                  onLock={recorder.lock}
                 />
-                {isTranscribing ? (
-                  <View style={styles.voiceBtnSlot}>
-                    <ActivityIndicator color={colors.accent} />
-                  </View>
-                ) : (
-                  <VoiceButton
-                    state={recorder.state}
-                    onPressIn={recorder.start}
-                    onPressOut={handleStopRecording}
-                    onLock={recorder.lock}
-                  />
-                )}
-              </View>
+              )}
+            </View>
+            {/* Hidden, not just disabled, while actively recording — a
+                visible-but-disabled "Сохранить" was misleading mid-recording,
+                and if there was already text from before this recording
+                started (state === 'recording', not yet locked), the button
+                wasn't even disabled: tapping it would submit that stale text
+                and call goNext(), which resets the recorder and silently
+                kills the in-progress recording. */}
+            {!isRecordingActive && (
+              <Button
+                title="Сохранить"
+                onPress={handleSendText}
+                loading={textMutation.isPending}
+                disabled={!text.trim() || isTranscribing}
+              />
             )}
-            <Button
-              title="Сохранить"
-              onPress={handleSendText}
-              loading={textMutation.isPending}
-              disabled={!text.trim() || isTranscribing || recorder.state === 'locked'}
-            />
           </View>
         )}
         </Animated.View>
 
-        <Button
-          title={isLast ? (canClose ? 'Готово' : 'Начать общение') : 'Пропустить'}
-          variant="ghost"
-          onPress={() => skipMutation.mutate(current.key)}
-          loading={skipMutation.isPending}
-          disabled={isLoading}
-        />
+        {/* Hidden while recording for the same reason as "Сохранить" above —
+            a stale answer already typed on this step would otherwise still
+            be submittable via this button mid-recording, silently killing
+            the in-progress recording via goNext()'s recorder.reset(). */}
+        {!isRecordingActive && (
+          <Button
+            title={isLast ? (canClose ? 'Готово' : 'Начать общение') : 'Пропустить'}
+            variant="ghost"
+            onPress={() => skipMutation.mutate(current.key)}
+            loading={skipMutation.isPending}
+            disabled={isLoading}
+          />
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
+    {showLockedUI && (
+      <RecordingOverlay seconds={seconds} onSave={handleStopRecording} onCancel={recorder.cancel} />
+    )}
     <TouchRipple ref={rippleRef} />
     </View>
   );
@@ -394,17 +412,6 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   voiceBtnSlot: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center' },
-  voiceHint: { ...typography.caption, textAlign: 'center' },
-  lockedRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
-  roundBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  roundBtnSend: { borderWidth: 0 },
   stylePickerCol: { gap: spacing.sm },
   styleCard: {
     borderWidth: 1,

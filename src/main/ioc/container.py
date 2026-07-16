@@ -3,6 +3,7 @@ from collections.abc import AsyncIterable
 
 from dishka import Provider, Scope, from_context, make_async_container, provide
 from fastapi import Request
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.domain.companion.repository import ICompanionRepository
@@ -14,6 +15,7 @@ from src.domain.memory.repository import (
 )
 from src.domain.profile.repository import IUserProfileRepository
 from src.domain.user.repository import IUserKeyRepository, IUserRepository
+from src.infrastructure.cache.redis_client import build_redis_client
 from src.infrastructure.claude.client import ClaudeClient
 from src.infrastructure.crypto.aes import CryptoService
 from src.infrastructure.crypto.context import UserRawKey
@@ -27,8 +29,11 @@ from src.infrastructure.db.repositories.memory import (
 )
 from src.infrastructure.db.repositories.profile import UserProfileRepository
 from src.infrastructure.db.repositories.user import UserKeyRepository, UserRepository
+from src.infrastructure.notify.email_sender import EmailSender
+from src.infrastructure.notify.sms_sender import SmsSender
 from src.infrastructure.stt.whisper import WhisperSTT
 from src.infrastructure.tts.elevenlabs import ElevenLabsTTS
+from src.infrastructure.verification.code_service import VerificationCodeService
 from src.main.settings import Settings
 
 
@@ -70,6 +75,22 @@ class AppProvider(Provider):
     @provide(scope=Scope.APP)
     def tts(self, settings: Settings) -> ElevenLabsTTS:
         return ElevenLabsTTS(settings)
+
+    @provide(scope=Scope.APP)
+    def redis_client(self, settings: Settings) -> Redis:
+        return build_redis_client(settings)
+
+    @provide(scope=Scope.APP)
+    def verification_code_service(self, redis: Redis, settings: Settings) -> VerificationCodeService:
+        return VerificationCodeService(redis, settings)
+
+    @provide(scope=Scope.APP)
+    def email_sender(self, settings: Settings) -> EmailSender:
+        return EmailSender(settings)
+
+    @provide(scope=Scope.APP)
+    def sms_sender(self) -> SmsSender:
+        return SmsSender()
 
     # Repositories
     user_repo = provide(UserRepository, scope=Scope.REQUEST, provides=IUserRepository)
