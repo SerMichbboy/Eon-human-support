@@ -13,12 +13,13 @@ import Animated, {
 import { useColors, radius, spacing, spring, typography } from '@/shared/theme';
 import { VoiceButton } from '@/features/voice/components/VoiceButton';
 import { useAudioRecorder } from '@/features/voice/hooks/useAudioRecorder';
-import { apiClient } from '@/shared/api/client';
+import { voiceApi } from '@/features/voice/api';
 
 interface Props {
   onSend: (text: string) => void;
   disabled?: boolean;
   onRecordingActiveChange?: (active: boolean) => void;
+  onStartConversation?: () => void;
 }
 
 // Spring-based, not timing-based — matches the `spring.gentle` "personality"
@@ -29,7 +30,7 @@ interface Props {
 const rowFadeIn = FadeIn.springify().damping(spring.gentle.damping).stiffness(spring.gentle.stiffness).mass(spring.gentle.mass);
 const rowFadeOut = FadeOut.springify().damping(spring.gentle.damping).stiffness(spring.gentle.stiffness).mass(spring.gentle.mass);
 
-export function ChatInput({ onSend, disabled, onRecordingActiveChange }: Props) {
+export function ChatInput({ onSend, disabled, onRecordingActiveChange, onStartConversation }: Props) {
   const colors = useColors();
   const [text, setText] = useState('');
   const [seconds, setSeconds] = useState(0);
@@ -103,13 +104,9 @@ export function ChatInput({ onSend, disabled, onRecordingActiveChange }: Props) 
   };
 
   const transcribeAndSend = async (uri: string) => {
-    const form = new FormData();
-    form.append('audio', { uri, name: 'audio.wav', type: 'audio/wav' } as any);
     try {
-      const { data } = await apiClient.post<{ text: string }>('/voice/transcribe', form, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      if (data.text) onSend(data.text);
+      const text = await voiceApi.transcribe(uri);
+      if (text) onSend(text);
     } finally {
       recorder.reset();
     }
@@ -159,6 +156,17 @@ export function ChatInput({ onSend, disabled, onRecordingActiveChange }: Props) 
         </Animated.View>
       ) : (
         <Animated.View key="normal" entering={rowFadeIn} exiting={rowFadeOut} style={styles.barContent}>
+          {onStartConversation && (
+            <TouchableOpacity
+              style={[styles.roundBtn, { backgroundColor: colors.bgInput, borderColor: colors.border }]}
+              onPress={onStartConversation}
+              disabled={disabled}
+              hitSlop={8}
+            >
+              <Ionicons name="headset-outline" size={20} color={disabled ? colors.textMuted : colors.textSecondary} />
+            </TouchableOpacity>
+          )}
+
           <TextInput
             style={[styles.input, { color: colors.textPrimary }]}
             placeholder="Напиши что-нибудь..."

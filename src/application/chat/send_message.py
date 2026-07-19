@@ -39,6 +39,7 @@ class SendMessage:
         text: str,
         raw_key: bytes | None = None,
         audio_url: str | None = None,
+        voice_mode: bool = False,
     ) -> SendMessageResult:
         companion = await self._companions.get_by_user_id(user_id)
         if not companion:
@@ -66,6 +67,22 @@ class SendMessage:
             # Embedding provider hiccup — chat should degrade to "no archive
             # recall this turn", not drop the whole connection.
             pass
+
+        # Conversation Mode (ConversationOverlay.tsx) sends this whole reply
+        # through TTS before the user hears anything, and the wait is felt as
+        # dead air, not just reading delay — a normal-length text reply (the
+        # default 1024-token cap) makes both the chat completion itself and
+        # the synthesis step that follows it noticeably slower, on top of
+        # reading like a monologue rather than a spoken back-and-forth. There's
+        # no streaming available to hide this (vsegpt exposes neither a
+        # streaming chat/completions nor a realtime audio endpoint — see
+        # CLAUDE.md's Conversation Mode notes), so the only lever left is
+        # making the reply itself shorter.
+        if voice_mode:
+            system_prompt += (
+                "\n\nСейчас голосовой разговор — отвечай 1-2 короткими "
+                "предложениями, разговорным тоном, без списков и форматирования."
+            )
         history = await self._context.get_recent_messages(companion.id)
 
         if raw_key:
@@ -79,7 +96,11 @@ class SendMessage:
             history = decrypted
 
         try:
-            reply = await self._claude.chat(system=system_prompt, messages=history)
+            reply = await self._claude.chat(
+                system=system_prompt,
+                messages=history,
+                max_tokens=120 if voice_mode else 1024,
+            )
         except Exception:
             # Provider hiccup (e.g. upstream 500) — the user's own message above
             # is already saved; without this, the whole call raises before the

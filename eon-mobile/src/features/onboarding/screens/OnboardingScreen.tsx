@@ -17,7 +17,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { AppStackParams } from '@/core/navigation/AppNavigator';
-import { apiClient } from '@/shared/api/client';
+import { voiceApi } from '@/features/voice/api';
 import { Button } from '@/shared/components/Button';
 import { TouchRipple, TouchRippleHandle } from '@/shared/components/TouchRipple';
 import { useColors, radius, spacing, typography } from '@/shared/theme';
@@ -217,12 +217,8 @@ export function OnboardingScreen({ navigation }: Props) {
     if (!uri) return;
     setIsTranscribing(true);
     try {
-      const form = new FormData();
-      form.append('audio', { uri, name: 'audio.wav', type: 'audio/wav' } as any);
-      const { data } = await apiClient.post<{ text: string }>('/voice/transcribe', form, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      if (data.text) setText(data.text);
+      const text = await voiceApi.transcribe(uri);
+      if (text) setText(text);
     } finally {
       setIsTranscribing(false);
       recorder.reset();

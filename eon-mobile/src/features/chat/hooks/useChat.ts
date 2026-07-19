@@ -112,14 +112,18 @@ export function useChat() {
     setLoadingMore(false);
   }, [loadingMore, hasMore, messages]);
 
-  const send = useCallback((text: string) => {
+  // `voiceMode` tells the backend to keep the reply to 1-2 short sentences
+  // (see SendMessage.execute / CLAUDE.md's Conversation Mode notes) — used by
+  // ConversationOverlay, where a normal-length reply means a proportionally
+  // longer TTS wait on top of the chat completion itself.
+  const send = useCallback((text: string, voiceMode?: boolean) => {
     if (!ws.current || ws.current.readyState !== WebSocket.OPEN) return;
     setMessages((prev) => [
       ...prev,
       { id: Date.now().toString(), role: 'user', content: text, createdAt: new Date() },
     ]);
     setIsTyping(true);
-    ws.current.send(JSON.stringify({ text }));
+    ws.current.send(JSON.stringify({ text, voice_mode: !!voiceMode }));
   }, []);
 
   return {

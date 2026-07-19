@@ -26,6 +26,7 @@ import { GlassPanel } from '@/shared/components/Glass';
 import { IconButton } from '@/shared/components/IconButton';
 import { TouchRipple, TouchRippleHandle } from '@/shared/components/TouchRipple';
 import { ChatInput } from '../components/ChatInput';
+import { ConversationOverlay } from '../components/ConversationOverlay';
 import { MessageBubble, TypingIndicator } from '../components/MessageBubble';
 
 import { ConnectionStatus, useChat } from '../hooks/useChat';
@@ -65,6 +66,12 @@ export function ChatScreen({ navigation }: Props) {
   const [isRecordingActive, setIsRecordingActive] = useState(false);
   const isRecordingActiveRef = useRef(isRecordingActive);
   useEffect(() => { isRecordingActiveRef.current = isRecordingActive; }, [isRecordingActive]);
+
+  // Hands-free voice conversation — see ConversationOverlay.tsx. It's a
+  // full-screen sibling rendered last (so it paints on top of everything,
+  // including the header) rather than a modal/navigator route, since it
+  // needs live access to this screen's own `messages`/`send` from useChat.
+  const [conversationActive, setConversationActive] = useState(false);
 
   const { data: companion } = useQuery({
     queryKey: ['companion'],
@@ -218,9 +225,22 @@ export function ChatScreen({ navigation }: Props) {
         </View>
 
         <View style={{ paddingBottom: insets.bottom }}>
-          <ChatInput onSend={send} disabled={!isConnected} onRecordingActiveChange={setIsRecordingActive} />
+          <ChatInput
+            onSend={send}
+            disabled={!isConnected}
+            onRecordingActiveChange={setIsRecordingActive}
+            onStartConversation={() => setConversationActive(true)}
+          />
         </View>
       </KeyboardAvoidingView>
+
+      {conversationActive && (
+        <ConversationOverlay
+          messages={messages}
+          send={send}
+          onClose={() => setConversationActive(false)}
+        />
+      )}
 
       <TouchRipple ref={rippleRef} />
     </View>
