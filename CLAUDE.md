@@ -136,6 +136,25 @@ async def transcribe(self, audio_bytes: bytes, filename: str = "audio.wav") -> s
 
 **Always send audio as WAV** (`audio.wav` / `audio/wav`). The m4a format is rejected by vsegpt's transcription endpoint.
 
+### TTS — vsegpt
+
+`src/infrastructure/tts/vsegpt.py` (`VsegptTTS`) — same `AsyncOpenAI` client, same `openai_api_key`/`vsegpt_base_url` as chat and STT, one provider for all three instead of a separate account:
+
+```python
+async def synthesize(self, text: str) -> bytes:
+    response = await self._client.audio.speech.create(
+        model="tts-openai/tts-1",
+        voice="alloy",
+        input=text,
+        response_format="mp3",
+    )
+    return await response.aread()
+```
+
+Wired through `SynthesizeSpeech` (`src/application/voice/synthesize.py`) and `POST /voice/synthesize` (`src/presentation/api/voice.py`), returned as `audio/mpeg`. `tts-openai/tts-1` is vsegpt's cheapest TTS tier (3.2₽/1000 chars) — bump to `tts-openai/gpt-4o-mini-tts` (7.5₽/1000 chars) for noticeably better prosody once quality matters more than cost, same pattern as the chat model's test→production upgrade path.
+
+This replaced an earlier `ElevenLabsTTS` stub (`elevenlabs_api_key`/`elevenlabs_voice_id` settings, never actually configured — both blank in `.env`) that was wired into DI but non-functional. Removed rather than kept alongside, since running two TTS providers behind one endpoint with only one actually configured was just dead code.
+
 ### Settings — `.env` keys
 
 ```
@@ -439,3 +458,6 @@ Content is grouped into labeled sections (`sectionLabel`: `typography.bodySmall`
 2. **MODE=test** — switch to `MODE=production` in `.env` before real user launch; also consider upgrading model from `gpt-4.1-mini`.
 3. **Light theme user bubble** — in light mode `userBubble: '#7B6EF6'` (purple) with dark text is readable but not ideal. Consider adding per-theme text colour tokens (`userBubbleText`) if the palette needs refinement.
 4. **AppNavigator header re-render on theme change** — `screenOptions` re-evaluates on each render because `useColors()` is called in the navigator component. This is correct behaviour but causes a brief header repaint on theme switch.
+5. **`POST /voice/synthesize` takes `text: str` as a bare param** — FastAPI treats this as a required query parameter, not a JSON body. Fine for short test calls, awkward for a real companion reply of any length. Should move to a small Pydantic request body.
+6. **Memory embedding vectors are stored unencrypted** — `memory_embeddings.embedding` (`src/infrastructure/db/models.py`) holds the raw `pgvector` vector of each daily/weekly summary's *plaintext* content, while the summary text itself (`daily_summaries.summary` / `weekly_summaries.summary`) is encrypted at rest. This was never a deliberate call — a DB compromise can't read the summary text, but could still infer its semantic content from the vector (or from having any other summary's plaintext to compare against). Worth either accepting explicitly or addressing.
+7. ~~No ANN index on `memory_embeddings.embedding`~~ — **fixed** (migration `0006_memory_embedding_hnsw_index.py`). Turned out `0001_initial.py` already added one (`ivfflat`, missed on first read of this codebase) — but built against an empty table at migration time, which for `ivfflat` means its `lists`-based clustering was trained on 0 rows and would stay meaningless until someone manually `REINDEX`ed it once real data existed, which nothing in this codebase does. Replaced with `hnsw`, which has no such training step — it builds incrementally as rows are inserted, so it stays useful without a maintenance job. Daily/weekly summaries (and their embeddings) are never pruned (see `generate_weekly_summary.py`), so a long-lived companion's row count — and thus how much this index actually matters — only grows over time.

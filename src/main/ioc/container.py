@@ -32,7 +32,7 @@ from src.infrastructure.db.repositories.user import UserKeyRepository, UserRepos
 from src.infrastructure.notify.email_sender import EmailSender
 from src.infrastructure.notify.sms_sender import SmsSender
 from src.infrastructure.stt.whisper import WhisperSTT
-from src.infrastructure.tts.elevenlabs import ElevenLabsTTS
+from src.infrastructure.tts.vsegpt import VsegptTTS
 from src.infrastructure.verification.code_service import VerificationCodeService
 from src.main.settings import Settings
 
@@ -73,8 +73,8 @@ class AppProvider(Provider):
         return WhisperSTT(settings)
 
     @provide(scope=Scope.APP)
-    def tts(self, settings: Settings) -> ElevenLabsTTS:
-        return ElevenLabsTTS(settings)
+    def tts(self, settings: Settings) -> VsegptTTS:
+        return VsegptTTS(settings)
 
     @provide(scope=Scope.APP)
     def redis_client(self, settings: Settings) -> Redis:
