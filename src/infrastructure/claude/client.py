@@ -122,3 +122,42 @@ class ClaudeClient:
             return json.loads(content)
         except json.JSONDecodeError:
             return {}
+
+    async def extract_reminder(self, text: str, client_time_iso: str) -> dict | None:
+        """`client_time_iso` is the user's current wall-clock time as an
+        offset-aware ISO string (e.g. "2026-07-19T18:30:00+03:00") — computed
+        from the client-supplied IANA timezone name, not assumed to be UTC.
+        The model resolves relative expressions ("через 2 часа", "в 18:00",
+        "завтра утром") against it and is asked to echo back the same offset,
+        which `SendMessage` then parses directly with `datetime.fromisoformat`."""
+        if self._stub:
+            return None
+        prompt = (
+            f"Текущее время пользователя: {client_time_iso}\n\n"
+            f'Сообщение пользователя: "{text}"\n\n'
+            "Просит ли пользователь напомнить о чём-то в конкретное время (сегодня, завтра, "
+            'через X минут/часов, в HH:MM и т.п.)? Если да, верни JSON {"message": string — '
+            "короткая формулировка того, о чём напомнить, от первого лица единственного числа "
+            '(как будто сам пользователь себе напоминает), "due_at": string — точные дата и '
+            "время в формате ISO 8601 с тем же смещением часового пояса, что в текущем времени "
+            "выше}. Если явного времени не указано или это не просьба напомнить — верни {}. "
+            "Возвращай только JSON, без пояснений."
+        )
+        try:
+            response = await self._client.chat.completions.create(
+                model="openai/gpt-4.1-mini",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=200,
+                response_format={"type": "json_object"},
+            )
+        except Exception:
+            return None
+        content = response.choices[0].message.content or ""
+        content = _JSON_FENCE_RE.sub("", content.strip()).strip()
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError:
+            return None
+        if not data.get("due_at") or not data.get("message"):
+            return None
+        return data

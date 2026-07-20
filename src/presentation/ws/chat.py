@@ -12,6 +12,7 @@ from src.domain.memory.repository import (
     IDailySummaryRepository, IMemoryEmbeddingRepository,
     IMessageRepository, IWeeklySummaryRepository,
 )
+from src.domain.reminder.repository import IReminderRepository
 from src.domain.user.repository import IUserKeyRepository
 from src.infrastructure.claude.client import ClaudeClient
 from src.infrastructure.crypto.aes import CryptoService
@@ -79,6 +80,8 @@ async def chat_ws(websocket: WebSocket):
             if not text:
                 continue
             voice_mode = bool(data.get("voice_mode", False))
+            client_time = data.get("client_time")
+            client_tz = data.get("client_tz")
 
             # A fresh Dishka request-scope (and pooled DB connection) per message,
             # not per connection — the socket can sit open for hours between
@@ -92,6 +95,7 @@ async def chat_ws(websocket: WebSocket):
                 daily_repo = await request_container.get(IDailySummaryRepository)
                 weekly_repo = await request_container.get(IWeeklySummaryRepository)
                 embedding_repo = await request_container.get(IMemoryEmbeddingRepository)
+                reminder_repo = await request_container.get(IReminderRepository)
                 claude = await request_container.get(ClaudeClient)
 
                 user_raw_key = UserRawKey(raw_key)
@@ -102,11 +106,13 @@ async def chat_ws(websocket: WebSocket):
                     claude, crypto, settings,
                 )
                 use_case = SendMessage(
-                    companion_repo, profile_repo, message_repo, context_builder, claude, crypto
+                    companion_repo, profile_repo, message_repo, reminder_repo,
+                    context_builder, claude, crypto,
                 )
 
                 result = await use_case.execute(
-                    user_id=user_id, text=text, raw_key=raw_key, voice_mode=voice_mode
+                    user_id=user_id, text=text, raw_key=raw_key, voice_mode=voice_mode,
+                    client_time=client_time, client_tz=client_tz,
                 )
                 await session.commit()
 

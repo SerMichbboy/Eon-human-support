@@ -24,7 +24,9 @@
       },
       "package": "com.eon.humansupport",
       "permissions": [
-        "RECORD_AUDIO"
+        "RECORD_AUDIO",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
     },
     "plugins": [
@@ -35,6 +37,12 @@
         }
       ],
       "expo-font"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "8055b2cf-3083-4831-a721-07ad20076278"
+      }
+    },
+    "owner": "sermich"
   }
 }

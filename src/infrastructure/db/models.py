@@ -72,6 +72,7 @@ class CompanionModel(Base):
     memory_embeddings: Mapped[list["MemoryEmbeddingModel"]] = relationship(
         back_populates="companion"
     )
+    reminders: Mapped[list["ReminderModel"]] = relationship(back_populates="companion")
 
 
 class UserProfileModel(Base):
@@ -149,6 +150,31 @@ class MemoryEmbeddingModel(Base):
     period_end: Mapped[date] = mapped_column(Date, nullable=False)
 
     companion: Mapped[CompanionModel] = relationship(back_populates="memory_embeddings")
+
+
+class ReminderModel(Base):
+    __tablename__ = "reminders"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    companion_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("companions.id"), nullable=False, index=True
+    )
+    message: Mapped[str] = mapped_column(Text, nullable=False)  # зашифровано
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    companion: Mapped[CompanionModel] = relationship(back_populates="reminders")
+
+
+class PushTokenModel(Base):
+    __tablename__ = "push_tokens"
+
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True
+    )
+    token: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
 class EmailSuppressionModel(Base):

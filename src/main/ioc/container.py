@@ -15,6 +15,8 @@ from src.domain.memory.repository import (
 )
 from src.domain.notify.repository import IEmailSuppressionRepository
 from src.domain.profile.repository import IUserProfileRepository
+from src.domain.push.repository import IPushTokenRepository
+from src.domain.reminder.repository import IReminderRepository
 from src.domain.user.repository import IUserKeyRepository, IUserRepository
 from src.infrastructure.cache.redis_client import build_redis_client
 from src.infrastructure.claude.client import ClaudeClient
@@ -30,6 +32,8 @@ from src.infrastructure.db.repositories.memory import (
 )
 from src.infrastructure.db.repositories.notify import EmailSuppressionRepository
 from src.infrastructure.db.repositories.profile import UserProfileRepository
+from src.infrastructure.db.repositories.push_token import PushTokenRepository
+from src.infrastructure.db.repositories.reminder import ReminderRepository
 from src.infrastructure.db.repositories.user import UserKeyRepository, UserRepository
 from src.infrastructure.notify.email_sender import EmailSender, ResendEmailSender, SmtpEmailSender
 from src.infrastructure.notify.sms_sender import SmsSender
@@ -119,6 +123,12 @@ class AppProvider(Provider):
     )
     email_suppression_repo = provide(
         EmailSuppressionRepository, scope=Scope.REQUEST, provides=IEmailSuppressionRepository
+    )
+    reminder_repo = provide(
+        ReminderRepository, scope=Scope.REQUEST, provides=IReminderRepository
+    )
+    push_token_repo = provide(
+        PushTokenRepository, scope=Scope.REQUEST, provides=IPushTokenRepository
     )
 
 

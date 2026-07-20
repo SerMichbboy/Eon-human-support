@@ -91,7 +91,11 @@ services:
       DATABASE_URL: postgresql+asyncpg://eon:eon@postgres:5432/eon
       DATABASE_URL_SYNC: postgresql://eon:eon@postgres:5432/eon
       REDIS_URL: redis://redis:6379/0
-    command: ["taskiq", "scheduler", "src.infrastructure.tasks.broker:scheduler", "--fs-discover", "--tasks-pattern", "src/infrastructure/tasks/*.py"]
+    # --update-interval: how often the scheduler re-polls all schedule sources for
+    # changes (taskiq's own default is 60s — fine for the nightly cron jobs, far too
+    # slow for reminders.py's dynamically-added one-off schedules, where a user
+    # asking to be reminded "in 2 minutes" shouldn't have up to a minute of slop).
+    command: ["taskiq", "scheduler", "src.infrastructure.tasks.broker:scheduler", "--fs-discover", "--tasks-pattern", "src/infrastructure/tasks/*.py", "--update-interval", "5"]
     depends_on:
       postgres:
         condition: service_healthy

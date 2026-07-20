@@ -116,6 +116,13 @@ export function useChat() {
   // (see SendMessage.execute / CLAUDE.md's Conversation Mode notes) — used by
   // ConversationOverlay, where a normal-length reply means a proportionally
   // longer TTS wait on top of the chat completion itself.
+  //
+  // `client_time`/`client_tz` are how the backend resolves "напомни в 18:00"
+  // to an actual UTC instant (see CLAUDE.md's Reminders notes) — the server
+  // has no other way to know the user's local wall-clock time. `client_time`
+  // is the device's current UTC instant; `client_tz` its IANA zone name, so
+  // the backend can correctly compute local time (DST etc.) rather than
+  // trusting a raw, possibly-stale numeric offset from the client.
   const send = useCallback((text: string, voiceMode?: boolean) => {
     if (!ws.current || ws.current.readyState !== WebSocket.OPEN) return;
     setMessages((prev) => [
@@ -123,7 +130,12 @@ export function useChat() {
       { id: Date.now().toString(), role: 'user', content: text, createdAt: new Date() },
     ]);
     setIsTyping(true);
-    ws.current.send(JSON.stringify({ text, voice_mode: !!voiceMode }));
+    ws.current.send(JSON.stringify({
+      text,
+      voice_mode: !!voiceMode,
+      client_time: new Date().toISOString(),
+      client_tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    }));
   }, []);
 
   return {
