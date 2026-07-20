@@ -1,3 +1,6 @@
+from pathlib import Path
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -37,5 +40,42 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_from: str = ""
 
+    # Resend transactional email (verification codes). The API key is read from
+    # the RESEND_API_KEY env var; if that is unset, it falls back to a plain
+    # `resend_key` file at the repo root (local-dev convenience, see the
+    # model_validator below). The value is a secret and must never be logged.
+    # When resend_api_key is empty the DI container falls back to SmtpEmailSender.
+    resend_api_key: str = ""
+    resend_email_domain: str = "auth.qseawd.ru"  # sending domain (SPF/DKIM verified)
+    resend_from_local: str = "noreply"           # local-part of the From address
+    resend_from_name: str = "Eon"                # display name of the From address
+    resend_timeout_seconds: float = 10.0
+    # Svix signing secret for the Resend bounce/complaint webhook. Copied from the
+    # Resend dashboard after the webhook endpoint is created; empty disables the route.
+    resend_webhook_secret: str = ""
+
     verification_code_ttl_seconds: int = 120
     verification_resend_cooldown_seconds: int = 30
+
+    # Windowed abuse limits on verification-code issuance, on top of the short
+    # per-send resend cooldown above. Without these the send endpoints are a free
+    # spam relay, which gets the email provider's account suspended. Counted in
+    # Redis, see VerificationCodeService.within_rate_limit.
+    verification_max_per_identifier: int = 3
+    verification_identifier_window_seconds: int = 900  # 15 minutes
+    verification_max_per_ip: int = 10
+    verification_ip_window_seconds: int = 3600  # 1 hour
+
+    @model_validator(mode="after")
+    def _load_resend_key_from_file(self) -> "Settings":
+        """Fall back to a repo-root `resend_key` file when RESEND_API_KEY is not
+        set in the environment. Keeps the raw key out of source (the file is
+        gitignored) while still working for local `uvicorn`/`docker` runs where
+        no env var was exported. The env var always wins if present."""
+        if not self.resend_api_key:
+            key_file = Path(__file__).resolve().parents[2] / "resend_key"
+            try:
+                self.resend_api_key = key_file.read_text(encoding="utf-8").strip()
+            except OSError:
+                pass
+        return self
