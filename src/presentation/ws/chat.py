@@ -78,6 +78,7 @@ async def chat_ws(websocket: WebSocket):
             text = data.get("text", "").strip()
             if not text:
                 continue
+            voice_mode = bool(data.get("voice_mode", False))
 
             # A fresh Dishka request-scope (and pooled DB connection) per message,
             # not per connection — the socket can sit open for hours between
@@ -104,7 +105,9 @@ async def chat_ws(websocket: WebSocket):
                     companion_repo, profile_repo, message_repo, context_builder, claude, crypto
                 )
 
-                result = await use_case.execute(user_id=user_id, text=text, raw_key=raw_key)
+                result = await use_case.execute(
+                    user_id=user_id, text=text, raw_key=raw_key, voice_mode=voice_mode
+                )
                 await session.commit()
 
             await websocket.send_json({"reply": result.reply})

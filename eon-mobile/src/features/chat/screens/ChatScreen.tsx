@@ -26,6 +26,7 @@ import { GlassPanel } from '@/shared/components/Glass';
 import { IconButton } from '@/shared/components/IconButton';
 import { TouchRipple, TouchRippleHandle } from '@/shared/components/TouchRipple';
 import { ChatInput } from '../components/ChatInput';
+import { ConversationOverlay } from '../components/ConversationOverlay';
 import { MessageBubble, TypingIndicator } from '../components/MessageBubble';
 
 import { ConnectionStatus, useChat } from '../hooks/useChat';
@@ -55,6 +56,22 @@ export function ChatScreen({ navigation }: Props) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const rippleRef = useRef<TouchRippleHandle>(null);
   const { chatBgColors, hydrate } = useSettingsStore();
+
+  // Recorder state lives inside ChatInput — mirrored up here so the header
+  // swipe gesture and its nav buttons can be locked out while a recording is
+  // in flight. Without this, swiping (or tapping settings/profile) navigated
+  // away mid-recording with no way back to it — the recording kept running
+  // unattended (or was silently lost, depending on the screen), which read
+  // as the app "eating" the recording.
+  const [isRecordingActive, setIsRecordingActive] = useState(false);
+  const isRecordingActiveRef = useRef(isRecordingActive);
+  useEffect(() => { isRecordingActiveRef.current = isRecordingActive; }, [isRecordingActive]);
+
+  // Hands-free voice conversation — see ConversationOverlay.tsx. It's a
+  // full-screen sibling rendered last (so it paints on top of everything,
+  // including the header) rather than a modal/navigator route, since it
+  // needs live access to this screen's own `messages`/`send` from useChat.
+  const [conversationActive, setConversationActive] = useState(false);
 
   const { data: companion } = useQuery({
     queryKey: ['companion'],
@@ -92,7 +109,7 @@ export function ChatScreen({ navigation }: Props) {
   // re-litigated on every move event.
   const headerPan = useMemo(() => {
     const isHorizontalDrag = (g: { dx: number; dy: number }) =>
-      Math.abs(g.dx) > Math.abs(g.dy) * 1.5 && Math.abs(g.dx) > 12;
+      !isRecordingActiveRef.current && Math.abs(g.dx) > Math.abs(g.dy) * 1.5 && Math.abs(g.dx) > 12;
     return PanResponder.create({
       onMoveShouldSetPanResponderCapture: (_, g) => isHorizontalDrag(g),
       onMoveShouldSetPanResponder: (_, g) => isHorizontalDrag(g),
@@ -135,7 +152,12 @@ export function ChatScreen({ navigation }: Props) {
       {/* Custom header — full JS. Swipe-to-navigate is on the whole screen (see
           `headerPan` above), not just this bar. */}
       <GlassPanel style={[styles.navHeader, { paddingTop: insets.top }]}>
-        <IconButton onPress={() => navigation.navigate('Settings')} pressDelay={NAV_DELAY} hitSlop={12} style={styles.navBtn}>
+        <IconButton
+          onPress={() => { if (!isRecordingActive) navigation.navigate('Settings'); }}
+          pressDelay={NAV_DELAY}
+          hitSlop={12}
+          style={styles.navBtn}
+        >
           <Ionicons name="settings-outline" size={22} color={colors.textSecondary} />
         </IconButton>
 
@@ -143,7 +165,12 @@ export function ChatScreen({ navigation }: Props) {
           {companionName.toUpperCase()}
         </Text>
 
-        <IconButton onPress={() => navigation.navigate('Profile')} pressDelay={NAV_DELAY} hitSlop={12} style={styles.navBtn}>
+        <IconButton
+          onPress={() => { if (!isRecordingActive) navigation.navigate('Profile'); }}
+          pressDelay={NAV_DELAY}
+          hitSlop={12}
+          style={styles.navBtn}
+        >
           <Ionicons name="person-outline" size={22} color={colors.textSecondary} />
         </IconButton>
       </GlassPanel>
@@ -198,9 +225,22 @@ export function ChatScreen({ navigation }: Props) {
         </View>
 
         <View style={{ paddingBottom: insets.bottom }}>
-          <ChatInput onSend={send} disabled={!isConnected} />
+          <ChatInput
+            onSend={send}
+            disabled={!isConnected}
+            onRecordingActiveChange={setIsRecordingActive}
+            onStartConversation={() => setConversationActive(true)}
+          />
         </View>
       </KeyboardAvoidingView>
+
+      {conversationActive && (
+        <ConversationOverlay
+          messages={messages}
+          send={send}
+          onClose={() => setConversationActive(false)}
+        />
+      )}
 
       <TouchRipple ref={rippleRef} />
     </View>

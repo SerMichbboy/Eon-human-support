@@ -99,6 +99,7 @@ export function ProfileScreen({ navigation }: Props) {
   const queryClient = useQueryClient();
   const [botName, setBotName] = useState('');
   const [editingName, setEditingName] = useState(false);
+  const savePendingRef = useRef(false);
 
   // Same custom "Liquid Glass" header as Chat/Settings, replacing the plain
   // native-stack header this screen used to rely on — it was the one screen
@@ -126,35 +127,25 @@ export function ProfileScreen({ navigation }: Props) {
   // over the horizontal feature carousel further down — that one wants the
   // same horizontal drag for its own scrolling.
   //
-  // Tried two earlier approaches that didn't hold up: a flat
-  // `scrollYRef.current < 40` (disabled back-swipe the instant you scrolled
-  // *at all*, long before the carousel was anywhere near), then measuring
-  // the carousel's exact content-position via cross-component `.measure()`
-  // calls (fragile in practice — the measurement apparently never landed
-  // reliably, so the gate silently stayed permanently open and swiping the
-  // carousel kept triggering navigation instead of scrolling it). This
-  // instead uses only numbers `onScroll` already hands us on every event —
-  // no extra refs, no async measurement, nothing that can fail silently:
-  // once scrolled within `NEAR_BOTTOM_PX` of the bottom of the content
-  // (which is where the carousel and the little "Eon · v0.1" footer live),
-  // back-swipe just turns off.
-  const scrollYRef = useRef(0);
-  const nearBottomRef = useRef(false);
+  // Three earlier approaches all tried to *guess* whether the touch was on
+  // the carousel from scroll position alone (a flat scrollY cutoff, exact
+  // cross-component `.measure()`, a height-based band) — all fragile, and
+  // none actually asked "is this touch physically on the carousel."
+  //
+  // The real fix: only Chat/Settings use the capture phase
+  // (`onMoveShouldSetPanResponderCapture`), which intercepts a drag *before*
+  // any child gets a look at it — fine there, since nothing nested wants
+  // horizontal drags. Profile has the carousel, which does. Using only the
+  // bubble phase (`onMoveShouldSetPanResponder`) here lets the carousel's own
+  // native horizontal ScrollView claim a drag that starts on it first, the
+  // same way any nested scrollable/gesture-owner normally would in RN's
+  // responder negotiation; our handler only gets it when nothing more
+  // specific already claimed it. No position math, no measuring, no guessing.
   const rippleRef = useRef<TouchRippleHandle>(null);
-  const handleScroll = useCallback((e: {
-    nativeEvent: { contentOffset: { y: number }; contentSize: { height: number }; layoutMeasurement: { height: number } };
-  }) => {
-    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-    scrollYRef.current = contentOffset.y;
-    const NEAR_BOTTOM_PX = 400;
-    const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
-    nearBottomRef.current = distanceFromBottom < NEAR_BOTTOM_PX;
-  }, []);
   const backPan = useMemo(() => {
     const isHorizontalDrag = (g: { dx: number; dy: number }) =>
-      !nearBottomRef.current && Math.abs(g.dx) > Math.abs(g.dy) * 1.5 && Math.abs(g.dx) > 12;
+      Math.abs(g.dx) > Math.abs(g.dy) * 1.5 && Math.abs(g.dx) > 12;
     return PanResponder.create({
-      onMoveShouldSetPanResponderCapture: (_, g) => isHorizontalDrag(g),
       onMoveShouldSetPanResponder: (_, g) => isHorizontalDrag(g),
       onPanResponderGrant: (evt) => {
         rippleRef.current?.triggerAt(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
@@ -202,14 +193,16 @@ export function ProfileScreen({ navigation }: Props) {
 
       <ScrollView
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + spacing.xl }]}
-        onScroll={handleScroll}
-        scrollEventThrottle={32}
       >
         <View style={styles.section}>
-          <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>Компаньон</Text>
+          <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>Ассистент</Text>
           <GlassCard style={styles.companionCard}>
             {editingName ? (
-              <View style={styles.renameRow}>
+              // Own column, not squeezed into the same row as the name+link
+              // display — the TextInput had no flex/width of its own there,
+              // so it collapsed to near-nothing next to the Save button
+              // crammed onto the same line.
+              <View style={styles.renameEditCol}>
                 <TextInput
                   style={[styles.renameInput, { backgroundColor: colors.bgInput, borderColor: colors.accent, color: colors.textPrimary }]}
                   value={botName}
@@ -218,20 +211,36 @@ export function ProfileScreen({ navigation }: Props) {
                   placeholderTextColor={colors.textMuted}
                   autoCorrect={false}
                   selectionColor={colors.accent}
+                  autoFocus
+                  // No explicit Cancel — tapping anywhere else blurs this
+                  // field natively (a plain focus event, not a gesture — an
+                  // earlier attempt wrapped the whole ScrollView in a
+                  // Pressable to catch "outside" taps instead, and that
+                  // broke scrolling: RN's touch responder system can let an
+                  // ancestor Touchable/Pressable claim the gesture before a
+                  // nested ScrollView recognizes it as a scroll). The
+                  // `savePendingRef` guard exists because tapping the Save
+                  // button *also* blurs this field (it's "elsewhere" too) —
+                  // without it, the blur-triggered cancel would tear down
+                  // the edit UI before Save's own onPress got a chance to run.
+                  onBlur={() => {
+                    setTimeout(() => {
+                      if (!savePendingRef.current) setEditingName(false);
+                    }, 150);
+                  }}
                 />
-                <View style={styles.renameActions}>
-                  <Pressable
-                    style={[styles.saveBtn, { backgroundColor: colors.accent }]}
-                    onPress={() => botName.trim() && renameMutation.mutate(botName.trim())}
-                  >
-                    <Text style={[styles.saveBtnText, { color: colors.onAccent }]}>
-                      {renameMutation.isPending ? '...' : 'Сохранить'}
-                    </Text>
-                  </Pressable>
-                  <Pressable onPress={() => setEditingName(false)}>
-                    <Text style={[styles.cancelText, { color: colors.textMuted }]}>Отмена</Text>
-                  </Pressable>
-                </View>
+                <Pressable
+                  style={[styles.saveBtn, { backgroundColor: colors.accent }]}
+                  onPressIn={() => { savePendingRef.current = true; }}
+                  onPress={() => {
+                    if (botName.trim()) renameMutation.mutate(botName.trim());
+                    savePendingRef.current = false;
+                  }}
+                >
+                  <Text style={[styles.saveBtnText, { color: colors.onAccent }]}>
+                    {renameMutation.isPending ? '...' : 'Сохранить'}
+                  </Text>
+                </Pressable>
               </View>
             ) : (
               <View style={styles.renameRow}>
@@ -434,11 +443,10 @@ const styles = StyleSheet.create({
   companionName: { fontSize: 20, fontFamily: typography.h3.fontFamily },
   editLink: { ...typography.bodySmall },
   renameRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  renameActions: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center', marginTop: spacing.sm },
+  renameEditCol: { gap: spacing.sm },
   renameInput: { borderWidth: 1, borderRadius: radius.sm, padding: spacing.sm, fontSize: 15 },
   saveBtn: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.sm, alignItems: 'center' },
   saveBtnText: { fontSize: 14, fontFamily: typography.bodySemibold.fontFamily },
-  cancelText: { ...typography.bodySmall },
   aboutText: { ...typography.body, lineHeight: 22 },
   aboutVersion: { ...typography.caption, marginTop: spacing.sm },
   featuresScroll: {

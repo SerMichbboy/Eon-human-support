@@ -28,5 +28,14 @@ class Settings(BaseSettings):
     openai_api_key: str
     vsegpt_base_url: str = ""
 
-    elevenlabs_api_key: str = ""
-    elevenlabs_voice_id: str = ""
+    # Registration/login verification codes (Redis-cached, see
+    # src/infrastructure/verification/code_service.py). SMS sending is a stub
+    # (logs the code) until a real provider is wired into SmsSender.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+
+    verification_code_ttl_seconds: int = 120
+    verification_resend_cooldown_seconds: int = 30

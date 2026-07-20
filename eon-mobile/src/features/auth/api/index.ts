@@ -15,19 +15,17 @@ export interface RegisterResponse {
 }
 
 export const authApi = {
-  registerEmail: (email: string, password: string, keySalt: string, encryptedKey: string, pbkdf2C: number) =>
-    apiClient.post<RegisterResponse>('/auth/register/email', {
-      email, password, key_salt: keySalt, encrypted_key: encryptedKey, pbkdf2_c: pbkdf2C,
+  register: (identifier: string, password: string, keySalt: string, encryptedKey: string, pbkdf2C: number) =>
+    apiClient.post<RegisterResponse>('/auth/register', {
+      identifier, password, key_salt: keySalt, encrypted_key: encryptedKey, pbkdf2_c: pbkdf2C,
     }),
 
-  registerPhone: (phone: string, password: string, keySalt: string, encryptedKey: string, pbkdf2C: number) =>
-    apiClient.post<RegisterResponse>('/auth/register/phone', {
-      phone, password, key_salt: keySalt, encrypted_key: encryptedKey, pbkdf2_c: pbkdf2C,
-    }),
+  login: (identifier: string, password: string) =>
+    apiClient.post<TokenResponse>('/auth/login', { identifier, password }),
 
-  loginEmail: (email: string, password: string) =>
-    apiClient.post<TokenResponse>('/auth/login/email', { email, password }),
+  verifyCode: (identifier: string, code: string) =>
+    apiClient.post('/auth/verify', { identifier, code }),
 
-  loginPhone: (phone: string, password: string) =>
-    apiClient.post<TokenResponse>('/auth/login/phone', { phone, password }),
+  resendCode: (identifier: string) =>
+    apiClient.post('/auth/resend-code', { identifier }),
 };

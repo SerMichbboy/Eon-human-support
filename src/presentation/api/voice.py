@@ -8,8 +8,9 @@ from fastapi.responses import Response
 from src.application.voice.synthesize import SynthesizeSpeech
 from src.application.voice.transcribe import TranscribeAudio
 from src.infrastructure.stt.whisper import WhisperSTT
-from src.infrastructure.tts.elevenlabs import ElevenLabsTTS
+from src.infrastructure.tts.vsegpt import VsegptTTS
 from src.presentation.deps import get_current_user_id
+from src.presentation.schemas.voice import SynthesizeRequest
 
 router = APIRouter()
 
@@ -29,9 +30,9 @@ async def transcribe(
 @router.post("/synthesize")
 @inject
 async def synthesize(
-    text: str,
-    tts: Annotated[ElevenLabsTTS, FromDishka()],
+    body: SynthesizeRequest,
+    tts: Annotated[VsegptTTS, FromDishka()],
     _: UUID = Depends(get_current_user_id),
 ):
-    audio_bytes = await SynthesizeSpeech(tts).execute(text)
+    audio_bytes = await SynthesizeSpeech(tts).execute(body.text)
     return Response(content=audio_bytes, media_type="audio/mpeg")

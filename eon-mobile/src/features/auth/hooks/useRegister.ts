@@ -1,62 +1,37 @@
 import { useMutation } from '@tanstack/react-query';
 import { Alert } from 'react-native';
-import { generateE2EKeyPair, rawKeyToHeader } from '@/shared/crypto/e2e';
-import { useAuthStore } from '@/shared/store/auth';
+import { generateE2EKeyPair } from '@/shared/crypto/e2e';
 import { authApi } from '../api';
 
-async function doRegisterEmail(email: string, password: string, setTokens: Function) {
-  const { rawKey, salt, encryptedKey, pbkdf2C } = await generateE2EKeyPair(password);
-  const rawKeyB64 = rawKeyToHeader(rawKey);
-  await authApi.registerEmail(email, password, salt, encryptedKey, pbkdf2C);
-  const { data } = await authApi.loginEmail(email, password);
-  await setTokens(data.access_token, data.refresh_token, rawKeyB64);
-  await useAuthStore.getState().setCredential(email, 'email');
-}
-
-async function doRegisterPhone(phone: string, password: string, setTokens: Function) {
-  const { rawKey, salt, encryptedKey, pbkdf2C } = await generateE2EKeyPair(password);
-  const rawKeyB64 = rawKeyToHeader(rawKey);
-  await authApi.registerPhone(phone, password, salt, encryptedKey, pbkdf2C);
-  const { data } = await authApi.loginPhone(phone, password);
-  await setTokens(data.access_token, data.refresh_token, rawKeyB64);
-  await useAuthStore.getState().setCredential(phone, 'phone');
-}
-
-function showPasswordWarning(onConfirm: () => void) {
+function showPasswordWarning(onConfirm: () => void, onCancel: () => void) {
   Alert.alert(
     '🔐 Запомни пароль',
     'Твои данные зашифрованы паролем. Если забудешь его — восстановить данные будет невозможно.\n\nЗапиши пароль в надёжном месте — на бумаге или в менеджере паролей.',
     [
-      { text: 'Отмена', style: 'cancel' },
+      { text: 'Отмена', style: 'cancel', onPress: onCancel },
       { text: 'Запомнил, продолжить', style: 'default', onPress: onConfirm },
     ],
   );
 }
 
-export function useRegisterEmail() {
-  const setTokens = useAuthStore((s) => s.setTokens);
+/** Registration no longer logs the user in directly — the account exists but
+ * isn't verified yet (server sends a code on /register); the caller
+ * navigates to VerifyCode and completes login there once the code checks out. */
+export function useRegister() {
   const mutation = useMutation({
-    mutationFn: ({ email, password }: { email: string; password: string }) =>
-      doRegisterEmail(email, password, setTokens),
+    mutationFn: async ({ identifier, password }: { identifier: string; password: string }) => {
+      const { salt, encryptedKey, pbkdf2C } = await generateE2EKeyPair(password);
+      await authApi.register(identifier, password, salt, encryptedKey, pbkdf2C);
+    },
   });
 
-  return {
-    ...mutation,
-    mutate: (vars: { email: string; password: string }) =>
-      showPasswordWarning(() => mutation.mutate(vars)),
-  };
-}
+  const registerWithWarning = (vars: { identifier: string; password: string }): Promise<void> =>
+    new Promise((resolve, reject) => {
+      showPasswordWarning(
+        () => mutation.mutateAsync(vars).then(resolve, reject),
+        () => reject(new Error('cancelled')),
+      );
+    });
 
-export function useRegisterPhone() {
-  const setTokens = useAuthStore((s) => s.setTokens);
-  const mutation = useMutation({
-    mutationFn: ({ phone, password }: { phone: string; password: string }) =>
-      doRegisterPhone(phone, password, setTokens),
-  });
-
-  return {
-    ...mutation,
-    mutate: (vars: { phone: string; password: string }) =>
-      showPasswordWarning(() => mutation.mutate(vars)),
-  };
+  return { ...mutation, registerWithWarning };
 }

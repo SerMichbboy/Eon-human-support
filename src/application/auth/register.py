@@ -1,6 +1,7 @@
 import base64
 from dataclasses import dataclass
 
+from src.application.auth.identifier import IdentifierType, classify_identifier
 from src.application.auth.tokens import hash_password
 from src.domain.companion.entity import Companion
 from src.domain.companion.repository import ICompanionRepository
@@ -99,3 +100,24 @@ class RegisterByPhone:
         await self._profiles.save(profile)
 
         return RegisterResult(user_id=str(user.id))
+
+
+class RegisterUser:
+    """Single entry point for the unified login/register field — classifies
+    `identifier` as email or phone and routes to the matching flow, so the
+    client never has to know or ask which one the user typed."""
+
+    def __init__(self, register_by_email: RegisterByEmail, register_by_phone: RegisterByPhone) -> None:
+        self._by_email = register_by_email
+        self._by_phone = register_by_phone
+
+    async def execute(
+        self, identifier: str, password: str, key_salt: str, encrypted_key: str, pbkdf2_c: int = 10_000
+    ) -> tuple[RegisterResult, IdentifierType, str]:
+        """Returns (result, identifier_type, normalized_identifier)."""
+        kind, normalized = classify_identifier(identifier)
+        if kind == IdentifierType.EMAIL:
+            result = await self._by_email.execute(normalized, password, key_salt, encrypted_key, pbkdf2_c)
+        else:
+            result = await self._by_phone.execute(normalized, password, key_salt, encrypted_key, pbkdf2_c)
+        return result, kind, normalized

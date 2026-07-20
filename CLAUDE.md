@@ -79,6 +79,15 @@ Messages are stored encrypted. Compression is driven by a **TaskIQ cron schedule
 
 Each user gets an individual AES-256-GCM key derived from `MASTER_ENCRYPTION_KEY`. All stored messages are encrypted at rest. See `src/infrastructure/crypto/aes.py`.
 
+### Auth — Unified Identifier + Verification Code
+
+Login/Register take a single `identifier` field (not separate email/phone inputs) — the server classifies it (`classify_identifier()` in `src/application/auth/identifier.py`: contains `@` → email, else normalized to E.164 phone) and routes to the matching flow. `RegisterUser`/`LoginUser` (`src/application/auth/register.py`/`login.py`) are the single entry points; the client never needs to know or ask which kind of identifier it got.
+
+- **Registration no longer logs the user in.** `/auth/register` creates the account and fires off a 4-digit verification code (email via SMTP, or SMS — `SmsSender` is currently a stub that just logs the code, no provider wired up yet) but returns before verification. Login is blocked (`UserNotVerifiedError` → 403) until the code is confirmed via `/auth/verify`.
+- **Codes are Redis-only** (`VerificationCodeService`, `src/infrastructure/verification/code_service.py`) — a 4-digit code with a 2-minute TTL (`verification_code_ttl_seconds`), plus a *separate* 30s cooldown key (`verification_resend_cooldown_seconds`) gating `/auth/resend-code` so a user can't spam it and rack up SMS costs.
+- **Frontend flow**: `RegisterScreen` → `authApi.register()` → navigates to `VerifyCodeScreen` (params: `identifier`, `password` — carried forward in memory only, needed to complete the login step after verification, never persisted) → on successful `/auth/verify`, immediately calls `/auth/login` itself and unlocks the E2E key exactly like a normal login would (`completeLoginFromTokens()` in `useLogin.ts`, shared by both `useLogin` and `VerifyCodeScreen` to avoid duplicating that unlock-and-setTokens logic). `LoginScreen` also lands on `VerifyCodeScreen` (with `autoResend: true`, since the original code may be long expired) if login 403s with "not verified" — a half-registered user isn't stuck at a dead-end error.
+- `VerifyCodeScreen`'s resend countdown (`RESEND_COOLDOWN_SECONDS = 30`, matching the backend's own cooldown) is purely a UI courtesy — the server enforces the real cooldown regardless (429 if hit early).
+
 ### AI Provider — vsegpt.ru
 
 The project uses **vsegpt.ru** as an OpenAI-compatible proxy. It works from Russia and provides access to both Claude models and Whisper STT.
@@ -126,6 +135,45 @@ async def transcribe(self, audio_bytes: bytes, filename: str = "audio.wav") -> s
 ```
 
 **Always send audio as WAV** (`audio.wav` / `audio/wav`). The m4a format is rejected by vsegpt's transcription endpoint.
+
+### TTS — vsegpt
+
+`src/infrastructure/tts/vsegpt.py` (`VsegptTTS`) — same `AsyncOpenAI` client, same `openai_api_key`/`vsegpt_base_url` as chat and STT, one provider for all three instead of a separate account:
+
+```python
+async def synthesize(self, text: str) -> bytes:
+    response = await self._client.audio.speech.create(
+        model="tts-openai/tts-1",
+        voice="alloy",
+        input=text,
+        response_format="mp3",
+    )
+    return await response.aread()
+```
+
+Wired through `SynthesizeSpeech` (`src/application/voice/synthesize.py`) and `POST /voice/synthesize` (`src/presentation/api/voice.py`), returned as `audio/mpeg`. `tts-openai/tts-1` is vsegpt's cheapest TTS tier (3.2₽/1000 chars) — bump to `tts-openai/gpt-4o-mini-tts` (7.5₽/1000 chars) for noticeably better prosody once quality matters more than cost, same pattern as the chat model's test→production upgrade path.
+
+This replaced an earlier `ElevenLabsTTS` stub (`elevenlabs_api_key`/`elevenlabs_voice_id` settings, never actually configured — both blank in `.env`) that was wired into DI but non-functional. Removed rather than kept alongside, since running two TTS providers behind one endpoint with only one actually configured was just dead code.
+
+`POST /voice/synthesize` takes a JSON body (`SynthesizeRequest { text: str }`, `src/presentation/schemas/voice.py`), not a bare query param — fixed as part of wiring up Conversation Mode below, since a query string was never going to survive a full companion reply of any length.
+
+### Conversation Mode — hands-free voice loop
+
+`ConversationOverlay` (`src/features/chat/components/ConversationOverlay.tsx`) is a full-screen "walkie-talkie" loop reusing the existing STT/chat/TTS pieces: record → `voiceApi.transcribe` → send over the chat WS → wait for the reply → `voiceApi.synthesize` → play it → listen again. Entered via a `headset-outline` icon button in `ChatInput` (left of the text field, `onStartConversation` prop) — a **separate** control from the existing `VoiceButton`, not a repurposing of it, so a quick one-off voice message and "start a hands-free conversation" stay two distinct, unambiguous actions.
+
+**This is not a real low-latency voice mode**, and deliberately doesn't try to be. ChatGPT's actual Advanced Voice Mode is one multimodal model that natively consumes and emits audio tokens directly over a persistent, bidirectional-streaming connection (OpenAI's Realtime API) — no separate STT/LLM/TTS models, server-side voice-activity detection instead of a tap-to-stop button, and the model can be interrupted mid-response. Our pipeline is three sequential, non-streaming HTTP round-trips per turn (transcribe, chat, synthesize) — vsegpt's docs show no Realtime/WebSocket-audio endpoint or streaming `chat/completions`, so there's nothing to build that on top of even in principle without going directly to OpenAI (the exact Russia-access problem vsegpt was chosen to solve in the first place). Each turn has a real multi-second "thinking" pause; this is closer to a voice-message ping-pong than a live conversation.
+
+**State machine** (`ConversationOverlay`'s `phase`): `listening → thinking → speaking → listening → ...`
+- **listening**: recording (own `useAudioRecorder()` instance, separate from `ChatInput`'s). Tapping the orb means "I'm done talking" — stops the recording and moves to `thinking`.
+- **thinking**: transcribes, then sends over the WS (`send()` from `useChat`). Since `send()` doesn't return the reply — it arrives later as a WS push into `useChat`'s `messages` array — this phase watches `messages` for two new entries to land (the just-sent user message, then the assistant's reply) rather than awaiting anything directly.
+- **speaking**: synthesizes the reply and plays it via `expo-av`'s `Audio.Sound`. Tapping the orb here stops playback and jumps straight back to `listening` — a lightweight stand-in for real barge-in interruption (not true mid-generation interruption, just "let me talk now").
+- On playback finishing naturally (`status.didJustFinish`), loops back to `listening` on its own — no tap needed to keep the conversation going.
+
+Visually reuses the halo+core `react-native-svg` orb pattern from onboarding's `RecordingOverlay` (see Voice Recording notes) but as its own copy, not a shared import — this one's orb reacts to `phase` (dimmer/slower while `thinking`, livelier while `speaking`) in a way the onboarding version, with only one state, doesn't need to.
+
+**`voiceApi`** (`src/features/voice/api/index.ts`, new) — `transcribe()`/`synthesize()` were previously copy-pasted separately into `ChatInput` and `OnboardingScreen`; consolidated here once `ConversationOverlay` became a third consumer. `synthesize()` writes the raw `audio/mpeg` response straight to a cache file via `expo-file-system`'s new `File` API (`file.write(new Uint8Array(...))`, no base64 round-trip) and returns its `file://` uri for `expo-av` to play — the package's own top-level `writeAsStringAsync` etc. are the *old* API and throw at runtime in SDK 54's `expo-file-system@~19`; only `expo-file-system/legacy` still has them, so this uses the new `File`/`Directory`/`Paths` classes instead.
+
+**Replies are capped short in Conversation Mode specifically (`voice_mode` flag), since there's no streaming to hide the wait otherwise.** `useChat.send(text, voiceMode?)` sends `{ text, voice_mode }` over the WS; `chat_ws` (`src/presentation/ws/chat.py`) forwards it into `SendMessage.execute(..., voice_mode=...)`, which when true appends "отвечай 1-2 короткими предложениями, разговорным тоном" to the system prompt and caps `ClaudeClient.chat`'s `max_tokens` at 120 (vs. the normal 1024). A normal-length text reply reads fine in a chat bubble but means a proportionally longer TTS wait when it has to be spoken aloud first — every full reply already gets synthesized *and generated* start-to-finish before any audio plays, so a shorter reply is the one lever that actually shrinks both of those steps at once (there's nothing to stream: see the "not a real low-latency voice mode" note above).
 
 ### Settings — `.env` keys
 
@@ -230,7 +278,7 @@ Radius values: `sm: 12`, `md: 18`, `lg: 28`, `full: 9999`.
 
 **Specular highlight (`GlassRim`, in `Glass.tsx`)**: real Liquid Glass's highlight is a *rim light tracing the shape's contour* — brightness depends on surface-normal angle vs. a light direction, brightest facing the light and fading around the perimeter (Apple's actual implementation is a GPU shader: displacement-map refraction + gyroscope-linked specular highlight; see WWDC25 session 219 and https://imadrahmoune.com/liquid-glass/ for the technical breakdown). We don't run shaders — `GlassRim` approximates the effect with `react-native-svg`: a rounded-rect **stroke** (not a filled interior gradient) using a top-to-bottom `LinearGradient` as the stroke paint, which naturally reads as "brightest at the top, fading around the sides" without needing an angular/conic gradient. Dark-theme only — white is invisible on light theme's near-white cards, and colored tints there read as a stain rather than light (tried violet and warm amber, both rejected). Animates via a slow opacity breathe, not positional movement — an earlier version translated a filled rectangle up/down for "floating," but sliding it away from the true edge opened a gap with nothing covering it, exposing the border/seam underneath; a fixed-geometry stroke has no equivalent safe direction to slide.
 
-If a future pass wants the *real* thing (background refraction + gyroscope-reactive highlight), that's a `@shopify/react-native-skia` (SkSL shader) project — a much larger lift than tuning `GlassRim`, not attempted here.
+If a future pass wants the *real* thing (background refraction + gyroscope-reactive highlight), that's a `@shopify/react-native-skia` (SkSL shader) project — a much larger lift than tuning `GlassRim`. A Skia-shader version of `RecordingOverlay`'s `VoiceOrb` was tried and reverted (crashed on plain Expo Go — see Voice Recording notes below) precisely because that lift, and the dev-client requirement it brings, wasn't taken on deliberately up front. Worth deciding that trade-off explicitly before attempting this again, for either component.
 
 ### Icons
 
@@ -256,9 +304,33 @@ Theme control is a moon/sun segmented picker (`ThemeToggle` in `SettingsScreen.t
 
 ### Voice Recording — Lock Gesture
 
-`VoiceButton` uses `PanResponder`. Slide up > 55 px while holding to lock recording:
+`VoiceButton` uses `PanResponder` for gesture detection, but drives its animations (slide-to-lock, the recording pulse) through Reanimated shared values, not the old RN `Animated` API — the original version called `Animated.Value.setValue()` directly from `onPanResponderMove`, which is a JS↔native bridge round-trip on every touch-move event and read as janky finger-tracking. Reanimated shared values are written from that same JS-thread callback but propagate to the UI thread without that bridge serialization.
+
+While recording, two `Ring` components (a border-only circle scaling up from the button's own size while fading out, staggered half a cycle apart via `withDelay` so one is always mid-expansion) replace what used to be a plain breathing scale on the button itself — the classic Siri/Assistant-style "listening" pulse reads much more clearly as "capturing audio" than the button just growing and shrinking in place did.
+
+**The idle→recording transition itself is smoothed too**, separately from the rings: `recorder.start()` (`useAudioRecorder.ts`) is async — permissions, then setting up the actual audio session — real device latency that can't be hidden outright. Before this, *nothing* responded to the touch until that resolved and `state` flipped to `'recording'`, at which point the button's colors/icon just snapped; a beat of apparent unresponsiveness followed by an abrupt jump is what actually read as "jerky," not the recording pulse itself. Two fixes: `pressScale` reacts to the touch instantly (`onPanResponderGrant`), independent of whatever async state `recorder` is still catching up to, so the button visibly responds the moment you touch it rather than waiting on `start()`; and once `state` does flip, `activeProgress` animates the bg/border color change over 220ms via `interpolateColor` (and the icon swap crossfades via keyed `entering`/`exiting`) instead of snapping. The locked-state color swap (accentMuted → accent) is left as an instant snap deliberately — that's a distinct, deliberate user action (slide-to-lock), not part of the automatic idle→recording wait this is smoothing over.
+
+**The recording→locked *row* swap (`ChatInput.tsx`) needed a different fix than the crossfade itself.** `ChatInput` replaces the input row (TextInput + `VoiceButton`) with a "locked" row (cancel / timer / send) once `recorder.state === 'locked'`, and crossfades that swap (`entering`/`exiting`) rather than an instant unmount+mount. That still read as jerky, because the swap fires the instant the slide-up-to-lock drag crosses the lock threshold — while the drag may still be physically in flight (finger still moving, or just barely released) and `VoiceButton`'s own spring-back to center hasn't finished settling. Swapping the *entire surrounding row's layout* out from under a gesture that's still happening is what actually reads as a jerk, independent of how smooth the fade itself is. `ChatInput` gates the row swap behind a local `showLockedUI` state that only flips true ~280ms after `recorder.state` becomes `'locked'` (`setTimeout`, cleared on unmount/state change) — giving the drag time to settle before the surrounding UI changes shape. `VoiceButton`'s own appearance (lock icon, accent color) still reacts to the real `recorder.state` immediately during that window, since that's local feedback on the thing being touched, not a full layout change happening elsewhere. `OnboardingScreen` uses the same `showLockedUI` delay, but no longer swaps a row at all — see below.
+
+**The row-swap fade is spring-based (`.springify()`), not `.duration()`-timed** — `ChatInput.tsx` defines `rowFadeIn`/`rowFadeOut` as `FadeIn`/`FadeOut` builders configured with `spring.gentle`'s damping/stiffness/mass, matching the "personality" every other animation in the app uses, instead of a fixed linear duration that felt mechanical next to it. This required a fix in `theme/motion.ts`: `spring.gentle` etc. used to be cast `as WithSpringConfig`, whose fields are all optional — that widened `spring.gentle.damping` to `number | undefined` and broke `.damping(spring.gentle.damping)`, which needs a plain `number`. The cast was removed; the literal object type (`{ damping: number; stiffness: number; mass: number }`) is still structurally assignable everywhere a `WithSpringConfig` is expected.
+
+**Onboarding replaces the locked row with a full-screen `RecordingOverlay`, not a compact in-row control.** Once locked, recording is hands-free — there's no gesture left to protect, so `OnboardingScreen` hands the whole screen to `features/onboarding/components/RecordingOverlay.tsx` (gated by the same `showLockedUI` flag) instead of `ChatInput`'s cancel/timer/send row. It's a `Pressable` covering the screen — tapping anywhere saves the recording (same `handleStopRecording` as before), a small corner button cancels — over a blurred (`expo-blur` `BlurView`) backdrop. This is **onboarding-only** — `ChatInput` keeps its compact row, since chat's screen real estate is already busy with message history.
+
+**The overlay's centerpiece is a single glowing `VoiceOrb`, styled after voice-assistant "listening" screens (ChatGPT voice mode, Siri) rather than a scattered field of floating shapes** — an earlier version used several independently-drifting accent-colored circles, but a single central orb reads much more clearly as "the thing that's listening to you" the same way those reference UIs do, and gives the tap-anywhere-to-save gesture one obvious focal point instead of competing shapes.
+
+Built from two `react-native-svg` `RadialGradient` layers: a big, very soft `halo` bleeding outward (standing in for the ambient glow a real emissive material would cast), and a smaller `core` circle with an off-center highlight (top-left-ish gradient stop), reading as a lit sphere rather than a flat wash. Both breathe/wobble on independent Reanimated cycles (macro `scale` on the core, non-uniform `scaleX`/`scaleY` for a slightly liquid feel, a separate cycle on the halo) so the combination reads as one organic, never-quite-repeating morph instead of a single mechanical pulse. Colored from this app's own `accent`→`accentWarm` tokens, not a copied ChatGPT blue.
+
+**A real per-pixel-lit `@shopify/react-native-skia` shader version of the core sphere was tried and reverted.** A `RuntimeEffect`/SkSL fragment shader treated the disc as a hemisphere impostor (`z = sqrt(1 - x² - y²)`) with diffuse+specular lighting — genuinely more "volumetric" than a flat gradient. It was pulled for two reasons: (1) it **crashed the app on a plain Expo Go client** — Skia is a native module that isn't bundled in vanilla Expo Go the way Reanimated/SVG/BlurView are, so the app broke the moment `OnboardingScreen` tried to mount the shader's `Canvas`, and (2) it was already rejected on looks ("не то визуально") before the crash was even reported. Reverted to plain `react-native-svg` — every other themed surface in this app already depends on it, and it's known to work without a native rebuild. If a real 3D sphere gets revisited, it needs an actual dev-client build (`npx expo run:ios`/`run:android`), not just `expo start` — worth deciding that trade-off deliberately up front next time, rather than discovering it as a crash.
+
+This full-screen takeover fixed a real layout bug, not just a stylistic one: the old locked row lived inside `inputWrap`, an unstyled (no `minHeight`) wrapper, and was positioned `absolute` so it wouldn't add to the row's height. With the normal (in-flow) row unmounted during the crossfade, `inputWrap` had nothing left in normal flow to size it, collapsed to 0 height, and the absolutely-positioned locked row rendered overlapping whatever came after it in the ScrollView instead of occupying its own space — this is what "верстка поехала" during onboarding recording. Since the locked UI is now a `RecordingOverlay` rendered as a sibling outside the ScrollView entirely (not inside `inputWrap`), that whole failure mode is gone — the input row only ever renders its own normal contents now, so it always sizes itself normally.
+
+**Both the "Сохранить" and "Пропустить"/"Готово"/"Начать общение" buttons are hidden (not disabled) in `OnboardingScreen` while `isRecordingActive`.** A visible-but-disabled button was misleading mid-recording, and if a previous answer was already typed on this step, neither button was actually disabled by state — tapping either would submit/skip using that stale text and call `goNext()`, which resets the recorder and silently kills the in-progress recording.
+
+**ChatScreen blocks its header swipe-to-navigate (and the Settings/Profile icon buttons) while a recording is active**, so you can't swipe or tap away from Chat mid-recording and orphan it. Recorder state lives inside `ChatInput`, not `ChatScreen` — `ChatInput` takes an `onRecordingActiveChange` callback (fired from a `useEffect` on `isRecording`) that `ChatScreen` uses to mirror the flag into its own state, mirrored into a ref (same pattern as `OnboardingScreen`'s `isRecordingActiveRef`) so the memoized `headerPan` `PanResponder` reads the current value without needing to be recreated on every change.
+
+Slide up > 55 px while holding to lock recording:
 - Normal: hold to record, release to send
-- Locked: recording continues hands-free; cancel (✕) or send (↑) buttons appear in `ChatInput`
+- Locked: recording continues hands-free; cancel (✕) or send (↑) buttons appear in `ChatInput` (or, in Onboarding, the full-screen `RecordingOverlay`)
 
 Audio is recorded as **WAV** (16 kHz, mono, LINEAR_PCM on iOS). Never use m4a — vsegpt rejects it.
 
@@ -270,7 +342,7 @@ Audio is recorded as **WAV** (16 kHz, mono, LINEAR_PCM on iOS). Never use m4a �
 
 - **One input, not two modes.** The `TextInput` is always present; `VoiceButton` sits inline beside it (`inputRow` style) rather than behind a mode switch. Recording (hold, slide up to lock — same `VoiceButton` gesture as `ChatInput`) transcribes into that same field via `/voice/transcribe` (the same endpoint `ChatInput` uses) instead of saving directly — the user sees and can edit the transcription before pressing "Сохранить", rather than trusting a raw voice-to-text pass straight into their profile. `isTranscribing` disables the field and shows a spinner in the `VoiceButton`'s slot while the request is in flight.
 - `onboardingApi.voiceStep` (and the backend's `/onboarding/voice-step` direct-save flow) is no longer called from the frontend — removed as dead code from `onboardingApi`, though the backend route itself was left alone.
-- **Swipe between steps**: same whole-screen `PanResponder` pattern as Chat/Settings/Profile (capture phase, axis-dominance, `TouchRipple` feedback), gated off while `isRecordingActive` (recording isn't step-scoped, so switching questions mid-recording would be confusing). It only moves the local `step` pointer — same as the existing progress-dot navigation — nothing is saved by swiping, so answers typed on other steps are preserved in the `answers` state either way.
+- **Swipe between steps**: same whole-screen `PanResponder` pattern as Chat/Settings (capture phase, axis-dominance, `TouchRipple` feedback), gated off while `isRecordingActive` (recording isn't step-scoped, so switching questions mid-recording would be confusing). It only moves the local `step` pointer — same as the existing progress-dot navigation — nothing is saved by swiping, so answers typed on other steps are preserved in the `answers` state either way.
 - **`bounces={false}` / `overScrollMode="never"`** on the ScrollView: onboarding's content is short and vertically centered (`justifyContent: 'center'`), so there was nothing to actually scroll — every up/down drag just triggered the elastic rubber-band overscroll effect, which visibly "stretched" every bordered box on screen. Disabling bounce removes that distortion since there's no legitimate scroll content for it to apply to anyway.
 
 ### Password Visibility Toggle
@@ -318,7 +390,8 @@ Current pinned versions (Expo SDK 54 / RN 0.81.5 / React 19.1.0):
 - `expo-secure-store@~15.0.8`
 - `react-native-reanimated@~4.1.1` + `react-native-worklets@0.5.1` — v4 requires New Architecture (default-on for SDK 54) and split the Babel transform into `react-native-worklets/plugin`, which must be the **last** entry in `babel.config.js`'s `plugins` array.
 - `expo-font@~14.0.12` + `@expo-google-fonts/onest` — app font is Onest (weights 300/400/500/600/700), loaded via `useFonts()` in `src/core/index.tsx` before anything renders (same gate pattern as `RootNavigator`'s hydration guard).
-- `react-native-svg` — used for `GlassRim`'s contour stroke (see Liquid Glass notes above); not used anywhere else yet.
+- `react-native-svg` — used for `GlassRim`'s contour stroke (see Liquid Glass notes above) and both layers of `RecordingOverlay`'s orb (see Voice Recording notes below).
+- **Avoid `@shopify/react-native-skia`** unless a dev-client build (`npx expo run:ios`/`run:android`) is already part of the plan — it's a native module not bundled in plain Expo Go, and was tried for `RecordingOverlay`'s orb and reverted after it crashed the app on launch for exactly that reason (see Voice Recording notes below). Every other native dependency in this list works via plain `npx expo install` + `expo start`; Skia is the one exception.
 
 After changing packages, always restart with `npx expo start --clear`.
 
@@ -366,6 +439,8 @@ Swipe gestures (PanResponder on both header rows):
 - **left→right** (dx > 50): `navigation.navigate('Settings')`
 - **right→left** (dx < -50): `navigation.navigate('Profile')`
 
+**`ProfileScreen`'s swipe-back is bubble-phase only** (`onMoveShouldSetPanResponder`, no `onMoveShouldSetPanResponderCapture`) — the one exception to the capture-phase pattern used everywhere else. Profile has a nested horizontal `FlatList` (the app-features carousel in `AboutSection`) that also wants horizontal drags; capture phase intercepts a drag *before* any child gets a look at it, which permanently wins over the carousel no matter what. Three earlier attempts tried to *guess* "is this touch on the carousel" from scroll position (a flat scrollY cutoff, cross-component `.measure()`, a height-based band) — all fragile, none actually looked at where the touch was. Bubble phase lets RN's normal responder negotiation give the carousel's own native scroll first refusal on a drag that starts on it, falling back to swipe-back everywhere else — no position math needed.
+
 ### Settings — Side Screen
 
 Settings is a full navigation screen (`src/features/chat/screens/SettingsScreen.tsx`), not a modal. Registered in AppNavigator with `animation: 'slide_from_left'` — slides in from the left to mirror the swipe direction.
@@ -403,3 +478,6 @@ Content is grouped into labeled sections (`sectionLabel`: `typography.bodySmall`
 2. **MODE=test** — switch to `MODE=production` in `.env` before real user launch; also consider upgrading model from `gpt-4.1-mini`.
 3. **Light theme user bubble** — in light mode `userBubble: '#7B6EF6'` (purple) with dark text is readable but not ideal. Consider adding per-theme text colour tokens (`userBubbleText`) if the palette needs refinement.
 4. **AppNavigator header re-render on theme change** — `screenOptions` re-evaluates on each render because `useColors()` is called in the navigator component. This is correct behaviour but causes a brief header repaint on theme switch.
+5. ~~`POST /voice/synthesize` takes `text: str` as a bare param~~ — **fixed**, now a `SynthesizeRequest` JSON body (see TTS notes above), done as part of wiring up Conversation Mode.
+6. **Memory embedding vectors are stored unencrypted** — `memory_embeddings.embedding` (`src/infrastructure/db/models.py`) holds the raw `pgvector` vector of each daily/weekly summary's *plaintext* content, while the summary text itself (`daily_summaries.summary` / `weekly_summaries.summary`) is encrypted at rest. This was never a deliberate call — a DB compromise can't read the summary text, but could still infer its semantic content from the vector (or from having any other summary's plaintext to compare against). Worth either accepting explicitly or addressing.
+7. ~~No ANN index on `memory_embeddings.embedding`~~ — **fixed** (migration `0006_memory_embedding_hnsw_index.py`). Turned out `0001_initial.py` already added one (`ivfflat`, missed on first read of this codebase) — but built against an empty table at migration time, which for `ivfflat` means its `lists`-based clustering was trained on 0 rows and would stay meaningless until someone manually `REINDEX`ed it once real data existed, which nothing in this codebase does. Replaced with `hnsw`, which has no such training step — it builds incrementally as rows are inserted, so it stays useful without a maintenance job. Daily/weekly summaries (and their embeddings) are never pruned (see `generate_weekly_summary.py`), so a long-lived companion's row count — and thus how much this index actually matters — only grows over time.
