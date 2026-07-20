@@ -88,8 +88,8 @@ class AppProvider(Provider):
 
     @provide(scope=Scope.APP)
     def email_sender(self, settings: Settings) -> EmailSender:
-        # Resend when a key is configured (env RESEND_API_KEY or the resend_key
-        # file), otherwise fall back to SMTP / the logging stub.
+        # Resend when RESEND_API_KEY is configured, otherwise fall back to
+        # SMTP / the logging stub.
         if settings.resend_api_key:
             return ResendEmailSender(settings)
         return SmtpEmailSender(settings)
