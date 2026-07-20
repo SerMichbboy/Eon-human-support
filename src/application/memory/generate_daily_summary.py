@@ -1,13 +1,14 @@
 from datetime import date
 from uuid import UUID
 
+from src.application.memory.prompts import DAILY_SUMMARY_SYSTEM_PROMPT, NO_ACTIVITY_DAY
 from src.domain.memory.entity import DailySummary, MemoryEmbedding, Message, MessageRole, SummarySourceType
 from src.domain.memory.repository import (
     IDailySummaryRepository,
     IMemoryEmbeddingRepository,
     IMessageRepository,
 )
-from src.infrastructure.claude.client import ClaudeClient
+from src.infrastructure.ai.client import VsegptClient
 from src.infrastructure.crypto.aes import CryptoService
 
 
@@ -17,7 +18,7 @@ class GenerateDailySummary:
         message_repo: IMessageRepository,
         daily_repo: IDailySummaryRepository,
         embedding_repo: IMemoryEmbeddingRepository,
-        claude: ClaudeClient,
+        claude: VsegptClient,
         crypto: CryptoService,
     ) -> None:
         self._messages = message_repo
@@ -31,18 +32,11 @@ class GenerateDailySummary:
         day_messages = [m for m in messages if m.created_at.date() == day]
 
         if not day_messages:
-            summary_text = "В этот день общения не было."
+            summary_text = NO_ACTIVITY_DAY
         else:
             dialogue = _format_dialogue(day_messages, raw_key, self._crypto)
             summary_text = await self._claude.chat(
-                system=(
-                    "Ты анализируешь диалог между пользователем и AI-компаньоном за один день. "
-                    "Напиши резюме дня, но сохрани конкретику — имена, цифры, точные события, "
-                    "признания, детали, — а не только общую тему и эмоциональный фон. Смысл в том, "
-                    "чтобы Эон мог через месяцы напомнить об этом дне и удивить, что помнит именно "
-                    "детали, а не общие слова. Не пиши «говорили о работе» — пиши, что именно "
-                    "случилось на работе. Максимум 5 предложений. Без оценок и советов."
-                ),
+                system=DAILY_SUMMARY_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": dialogue}],
                 max_tokens=512,
             )

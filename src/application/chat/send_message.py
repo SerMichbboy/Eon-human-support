@@ -4,13 +4,18 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from src.application.chat.build_context import BuildContext
+from src.application.chat.prompts import (
+    REMINDER_UNCLEAR_NOTE,
+    VOICE_MODE_SUFFIX,
+    build_reminder_confirmed_note,
+)
 from src.domain.companion.repository import ICompanionRepository
 from src.domain.memory.entity import Message, MessageRole
 from src.domain.memory.repository import IMessageRepository
 from src.domain.profile.repository import IUserProfileRepository
 from src.domain.reminder.entity import Reminder
 from src.domain.reminder.repository import IReminderRepository
-from src.infrastructure.claude.client import ClaudeClient
+from src.infrastructure.ai.client import VsegptClient
 from src.infrastructure.crypto.aes import CryptoService
 
 # Cheap keyword gate before spending an extra LLM call on every message —
@@ -80,7 +85,7 @@ class SendMessage:
         message_repo: IMessageRepository,
         reminder_repo: IReminderRepository,
         context_builder: BuildContext,
-        claude: ClaudeClient,
+        claude: VsegptClient,
         crypto: CryptoService,
     ) -> None:
         self._companions = companion_repo
@@ -139,10 +144,32 @@ class SendMessage:
         # CLAUDE.md's Conversation Mode notes), so the only lever left is
         # making the reply itself shorter.
         if voice_mode:
-            system_prompt += (
-                "\n\nСейчас голосовой разговор — отвечай 1-2 короткими "
-                "предложениями, разговорным тоном, без списков и форматирования."
-            )
+            system_prompt += VOICE_MODE_SUFFIX
+
+        # Runs *before* the reply, not after (a change from the original
+        # version) — the reply itself needs to know whether a reminder was
+        # actually resolvable, so it can ask "when exactly?" instead of
+        # confidently confirming a reminder that `extract_reminder` couldn't
+        # actually pin to a time (see _maybe_schedule_reminder). This does add
+        # the extraction call to the critical path for messages that match
+        # the keyword gate — acceptable since those are rare, and getting the
+        # reply right here matters more than shaving that latency.
+        if raw_key and _looks_like_reminder(text):
+            try:
+                clarify_note = await self._maybe_schedule_reminder(
+                    companion_id=companion.id,
+                    text=text,
+                    raw_key=raw_key,
+                    client_time=client_time,
+                    client_tz=client_tz,
+                )
+                if clarify_note:
+                    system_prompt += clarify_note
+            except Exception:
+                # Never let a reminder-scheduling hiccup take down the chat
+                # reply itself.
+                pass
+
         history = await self._context.get_recent_messages(companion.id)
 
         if raw_key:
@@ -181,20 +208,6 @@ class SendMessage:
         )
         await self._messages.save(assistant_msg)
 
-        if raw_key and _looks_like_reminder(text):
-            try:
-                await self._maybe_schedule_reminder(
-                    companion_id=companion.id,
-                    text=text,
-                    raw_key=raw_key,
-                    client_time=client_time,
-                    client_tz=client_tz,
-                )
-            except Exception:
-                # Never let a reminder-scheduling hiccup take down the chat
-                # reply that's already been generated and saved above.
-                pass
-
         return SendMessageResult(reply=reply, companion_id=str(companion.id))
 
     async def _maybe_schedule_reminder(
@@ -204,26 +217,44 @@ class SendMessage:
         raw_key: bytes,
         client_time: str | None,
         client_tz: str | None,
-    ) -> None:
+    ) -> str | None:
+        """Returns a system-prompt note in both directions this needs to
+        correct the model's *own* assumption about what it can do — not just
+        the "couldn't resolve a time" failure case, but also success: without
+        an explicit "a reminder actually got scheduled" note, the model has
+        no way to know this backend capability exists at all, and (correctly,
+        for a plain LLM with no tool integration) defaults to telling the
+        user it can't set reminders — even though one was just silently
+        created and scheduled underneath it. Returns `None` only when there's
+        genuinely nothing to react to (not a reminder request at all)."""
         local_iso = _client_local_iso(client_time, client_tz)
         if not local_iso:
-            return
+            return None
 
+        # extract_reminder returns one of three shapes — see its own
+        # docstring. `None` (genuinely not a reminder request, e.g. a keyword
+        # gate false positive like "не забудь, что обещал" with no time
+        # attached) is deliberately left alone here, not treated the same as
+        # "unclear" — otherwise Eon would ask "во сколько напомнить?" in
+        # reply to messages that were never asking for a time-based reminder.
         extracted = await self._claude.extract_reminder(text, local_iso)
-        if not extracted:
-            return
+        if extracted is None:
+            return None
+
+        if extracted.get("unclear"):
+            return REMINDER_UNCLEAR_NOTE
 
         try:
             due_at = datetime.fromisoformat(extracted["due_at"])
         except (KeyError, ValueError):
-            return
+            return REMINDER_UNCLEAR_NOTE
         if due_at.tzinfo is None:
             due_at = due_at.replace(tzinfo=timezone.utc)
         due_at_utc = due_at.astimezone(timezone.utc)
 
         now = datetime.now(timezone.utc)
         if due_at_utc <= now:
-            return
+            return REMINDER_UNCLEAR_NOTE
 
         message = str(extracted.get("message") or text)
         encrypted_message = self._crypto.encrypt_field(message, raw_key)
@@ -239,3 +270,8 @@ class SendMessage:
         await send_reminder_task.schedule_by_time(
             reminder_schedule_source, due_at_utc, reminder_id=str(reminder.id)
         )
+
+        # Local time for the confirmation, not UTC — "напоминание в 20:00"
+        # would be wrong from the user's own point of view.
+        local_due_at = due_at_utc.astimezone(ZoneInfo(client_tz)) if client_tz else due_at
+        return build_reminder_confirmed_note(local_due_at.strftime("%d.%m %H:%M"))

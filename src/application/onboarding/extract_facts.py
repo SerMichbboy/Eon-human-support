@@ -1,5 +1,5 @@
 from src.application.onboarding.save_profile_step import ProfileStepData
-from src.infrastructure.claude.client import ClaudeClient
+from src.infrastructure.ai.client import VsegptClient
 from src.infrastructure.stt.whisper import WhisperSTT
 
 
@@ -9,7 +9,7 @@ class ExtractFactsFromText:
     occupation + family_status separately), instead of the caller having to
     guess which single field a broad answer belongs under."""
 
-    def __init__(self, claude: ClaudeClient) -> None:
+    def __init__(self, claude: VsegptClient) -> None:
         self._claude = claude
 
     async def execute(self, text: str, step: str) -> tuple[ProfileStepData, list[str]]:
@@ -41,7 +41,7 @@ class ExtractFactsFromText:
 
 
 class ExtractFactsFromVoice:
-    def __init__(self, stt: WhisperSTT, claude: ClaudeClient) -> None:
+    def __init__(self, stt: WhisperSTT, claude: VsegptClient) -> None:
         self._stt = stt
         self._text_extractor = ExtractFactsFromText(claude)
 

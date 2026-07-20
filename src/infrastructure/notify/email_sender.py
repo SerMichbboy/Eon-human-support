@@ -117,7 +117,7 @@ class SmtpEmailSender(EmailSender):
     """Plain SMTP — works with any provider (Gmail, Yandex, a corporate relay,
     a transactional service's SMTP endpoint, ...) via .env credentials, no
     vendor lock-in. Falls back to logging the code when SMTP isn't configured,
-    same stub convention as ClaudeClient when its API key is a placeholder.
+    same stub convention as VsegptClient when its API key is a placeholder.
     Kept as the fallback for when RESEND_API_KEY isn't set."""
 
     def __init__(self, settings: Settings) -> None:

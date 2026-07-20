@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { apiClient, WS_URL } from '@/shared/api/client';
+import { apiClient, refreshTokens, WS_URL } from '@/shared/api/client';
 
 export interface ChatMessage {
   id: string;
@@ -85,6 +85,25 @@ export function useChat() {
       // Distinct from 'connecting': the retry hasn't started yet, so this
       // window genuinely reads as "unavailable" rather than "in progress".
       setConnectionStatus('disconnected');
+      // The access token is short-lived (15 min) and this is the only place
+      // that ever notices it expired — unlike `apiClient`'s HTTP requests,
+      // the WS connection has no interceptor to catch a 401 and retry, so
+      // without this, a connection dropped by an expired token just retried
+      // every 3s with that same expired token forever (visible in the API
+      // logs as a wall of "connection rejected (403 Forbidden)"). Attempting
+      // this on every close, not just ones known to be token-related, since
+      // there's no cheap way to tell them apart from here — a refresh is
+      // harmless when the token was still valid.
+      //
+      // Deliberately NOT awaited: `refreshTokens()` has no request timeout,
+      // so if the network is the reason the socket just dropped (the actual
+      // common case — a server restart, a brief connectivity loss), this
+      // call can itself hang far longer than 3s. `connect` re-reads the
+      // token from SecureStore fresh every time it runs, so the refresh
+      // finishing slightly after this retry fires just means *this*
+      // attempt reuses the old token and fails fast into the next one — far
+      // better than the whole reconnect loop stalling on one slow request.
+      refreshTokens().catch(() => {});
       setTimeout(connect, 3000);
     };
 

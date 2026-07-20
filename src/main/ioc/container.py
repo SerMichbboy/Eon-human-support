@@ -19,7 +19,7 @@ from src.domain.push.repository import IPushTokenRepository
 from src.domain.reminder.repository import IReminderRepository
 from src.domain.user.repository import IUserKeyRepository, IUserRepository
 from src.infrastructure.cache.redis_client import build_redis_client
-from src.infrastructure.claude.client import ClaudeClient
+from src.infrastructure.ai.client import VsegptClient
 from src.infrastructure.crypto.aes import CryptoService
 from src.infrastructure.crypto.context import UserRawKey
 from src.infrastructure.db.engine import build_session_factory
@@ -71,8 +71,8 @@ class AppProvider(Provider):
             yield session
 
     @provide(scope=Scope.APP)
-    def claude(self, settings: Settings) -> ClaudeClient:
-        return ClaudeClient(settings)
+    def claude(self, settings: Settings) -> VsegptClient:
+        return VsegptClient(settings)
 
     @provide(scope=Scope.APP)
     def stt(self, settings: Settings) -> WhisperSTT:

@@ -22,24 +22,51 @@ apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) =>
   return config;
 });
 
+/** Shared by the response interceptor below and `useChat`'s WS reconnect —
+ * the access token is short-lived (15 min, `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`)
+ * and the WS connection has no interceptor of its own to catch a 401 and
+ * retry, so it needs this exact same refresh call available directly.
+ * `useChat` calls this on *every* socket close, not just ones confirmed to be
+ * token-related (no cheap way to tell from there) — so a plain network blip
+ * (the server restarting, a dropped connection) is a completely routine way
+ * for this call to fail, not evidence the refresh token itself is bad. Only
+ * clear stored tokens when the server actually rejected them (401/403);
+ * anything else (timeout, no connection at all) leaves them alone so a
+ * transient failure here can't silently log the user out. `timeout: 8000`
+ * so this can't hang indefinitely either — see `useChat.ts`'s `onclose`,
+ * which deliberately doesn't await this at all for the same reason. */
+export async function refreshTokens(): Promise<boolean> {
+  try {
+    const refresh = await SecureStore.getItemAsync('refresh_token');
+    if (!refresh) return false;
+    const { data } = await axios.post(
+      `${BASE_URL}/api/v1/auth/refresh`,
+      { refresh_token: refresh },
+      { timeout: 8000 }
+    );
+    await SecureStore.setItemAsync('access_token', data.access_token);
+    await SecureStore.setItemAsync('refresh_token', data.refresh_token);
+    return true;
+  } catch (error) {
+    const status = (error as AxiosError).response?.status;
+    if (status === 401 || status === 403) {
+      await SecureStore.deleteItemAsync('access_token');
+      await SecureStore.deleteItemAsync('refresh_token');
+    }
+    return false;
+  }
+}
+
 apiClient.interceptors.response.use(
   (res) => res,
   async (error: AxiosError) => {
     const original = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true;
-      try {
-        const refresh = await SecureStore.getItemAsync('refresh_token');
-        const { data } = await axios.post(`${BASE_URL}/api/v1/auth/refresh`, {
-          refresh_token: refresh,
-        });
-        await SecureStore.setItemAsync('access_token', data.access_token);
-        await SecureStore.setItemAsync('refresh_token', data.refresh_token);
-        original.headers.Authorization = `Bearer ${data.access_token}`;
+      if (await refreshTokens()) {
+        const token = await SecureStore.getItemAsync('access_token');
+        original.headers.Authorization = `Bearer ${token}`;
         return apiClient(original);
-      } catch {
-        await SecureStore.deleteItemAsync('access_token');
-        await SecureStore.deleteItemAsync('refresh_token');
       }
     }
     return Promise.reject(error);

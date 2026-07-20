@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.application.onboarding.extract_facts import ExtractFactsFromText, ExtractFactsFromVoice
 from src.application.onboarding.save_profile_step import ProfileStepData, SaveProfileStep
 from src.domain.profile.repository import IUserProfileRepository
-from src.infrastructure.claude.client import ClaudeClient
+from src.infrastructure.ai.client import VsegptClient
 from src.infrastructure.stt.whisper import WhisperSTT
 from src.presentation.deps import get_current_user_id
 from src.presentation.schemas.onboarding import ExtractFactsResponse, ProfileStepRequest, TextStepRequest
@@ -44,7 +44,7 @@ async def save_step(
 async def text_step(
     body: TextStepRequest,
     profile_repo: Annotated[IUserProfileRepository, FromDishka()],
-    claude: Annotated[ClaudeClient, FromDishka()],
+    claude: Annotated[VsegptClient, FromDishka()],
     session: Annotated[AsyncSession, FromDishka()],
     user_id: UUID = Depends(get_current_user_id),
 ):
@@ -77,7 +77,7 @@ async def voice_step(
     audio: UploadFile,
     profile_repo: Annotated[IUserProfileRepository, FromDishka()],
     stt: Annotated[WhisperSTT, FromDishka()],
-    claude: Annotated[ClaudeClient, FromDishka()],
+    claude: Annotated[VsegptClient, FromDishka()],
     session: Annotated[AsyncSession, FromDishka()],
     user_id: UUID = Depends(get_current_user_id),
 ):

@@ -4,7 +4,7 @@ from src.main.settings import Settings
 
 
 class VsegptTTS:
-    """Same vsegpt.ru proxy already used for chat (ClaudeClient) and STT
+    """Same vsegpt.ru proxy already used for chat (VsegptClient) and STT
     (WhisperSTT) — one provider, one key, already proven to work from Russia,
     instead of a separate ElevenLabs account. `tts-openai/tts-1` is the
     cheapest voice tier (3.2 per 1000 chars); swap to `tts-openai/gpt-4o-mini-tts`
