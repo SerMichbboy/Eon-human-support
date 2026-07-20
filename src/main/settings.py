@@ -37,5 +37,27 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_from: str = ""
 
+    # Resend transactional email (verification codes). The API key comes from the
+    # RESEND_API_KEY env var / .env, same as every other secret here. It's a
+    # secret and must never be logged. When resend_api_key is empty the DI
+    # container falls back to SmtpEmailSender.
+    resend_api_key: str = ""
+    resend_email_domain: str = "auth.qseawd.ru"  # sending domain (SPF/DKIM verified)
+    resend_from_local: str = "noreply"           # local-part of the From address
+    resend_from_name: str = "Eon"                # display name of the From address
+    resend_timeout_seconds: float = 10.0
+    # Svix signing secret for the Resend bounce/complaint webhook. Copied from the
+    # Resend dashboard after the webhook endpoint is created; empty disables the route.
+    resend_webhook_secret: str = ""
+
     verification_code_ttl_seconds: int = 120
     verification_resend_cooldown_seconds: int = 30
+
+    # Windowed abuse limits on verification-code issuance, on top of the short
+    # per-send resend cooldown above. Without these the send endpoints are a free
+    # spam relay, which gets the email provider's account suspended. Counted in
+    # Redis, see VerificationCodeService.within_rate_limit.
+    verification_max_per_identifier: int = 3
+    verification_identifier_window_seconds: int = 900  # 15 minutes
+    verification_max_per_ip: int = 10
+    verification_ip_window_seconds: int = 3600  # 1 hour

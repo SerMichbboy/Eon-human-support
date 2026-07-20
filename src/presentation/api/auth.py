@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from dishka.integrations.fastapi import FromDishka, inject
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.auth.identifier import InvalidIdentifierError
@@ -12,9 +12,10 @@ from src.application.auth.register import (
     EmailAlreadyExistsError, PhoneAlreadyExistsError, RegisterByEmail, RegisterByPhone, RegisterUser,
 )
 from src.application.auth.verify import (
-    InvalidCodeError, ResendTooSoonError, SendVerificationCode, VerifyIdentifier,
+    InvalidCodeError, RateLimitedError, ResendTooSoonError, SendVerificationCode, VerifyIdentifier,
 )
 from src.domain.companion.repository import ICompanionRepository
+from src.domain.notify.repository import IEmailSuppressionRepository
 from src.domain.profile.repository import IUserProfileRepository
 from src.domain.user.repository import IUserKeyRepository, IUserRepository
 from src.infrastructure.notify.email_sender import EmailSender
@@ -29,9 +30,20 @@ from src.main.settings import Settings
 router = APIRouter()
 
 
+def _client_ip(request: Request) -> str | None:
+    """Best-effort caller IP for rate limiting. Honours X-Forwarded-For (first
+    hop) when behind a proxy, else the direct peer. Only used as a throttle key,
+    never stored or logged, so a spoofed header just weakens one user's own limit."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else None
+
+
 @router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
 @inject
 async def register(
+    request: Request,
     body: RegisterRequest,
     user_repo: Annotated[IUserRepository, FromDishka()],
     key_repo: Annotated[IUserKeyRepository, FromDishka()],
@@ -40,6 +52,8 @@ async def register(
     code_service: Annotated[VerificationCodeService, FromDishka()],
     email_sender: Annotated[EmailSender, FromDishka()],
     sms_sender: Annotated[SmsSender, FromDishka()],
+    suppression_repo: Annotated[IEmailSuppressionRepository, FromDishka()],
+    settings: Annotated[Settings, FromDishka()],
     session: Annotated[AsyncSession, FromDishka()],
 ):
     register_by_email = RegisterByEmail(user_repo, key_repo, companion_repo, profile_repo)
@@ -58,9 +72,16 @@ async def register(
 
     # Account exists even if sending the code hiccups — SendVerificationCode
     # swallows notify failures so registration itself doesn't 500 over it.
-    await SendVerificationCode(code_service, email_sender, sms_sender).execute(
-        normalized, enforce_cooldown=False
+    sender = SendVerificationCode(
+        code_service, email_sender, sms_sender, settings, suppression_repo
     )
+    try:
+        await sender.execute(normalized, ip=_client_ip(request), enforce_cooldown=False)
+    except RateLimitedError:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many verification requests, try again later",
+        )
     return RegisterResponse(user_id=result.user_id)
 
 
@@ -85,17 +106,28 @@ async def verify(
 @router.post("/resend-code")
 @inject
 async def resend_code(
+    request: Request,
     body: ResendCodeRequest,
     code_service: Annotated[VerificationCodeService, FromDishka()],
     email_sender: Annotated[EmailSender, FromDishka()],
     sms_sender: Annotated[SmsSender, FromDishka()],
+    suppression_repo: Annotated[IEmailSuppressionRepository, FromDishka()],
+    settings: Annotated[Settings, FromDishka()],
 ):
+    sender = SendVerificationCode(
+        code_service, email_sender, sms_sender, settings, suppression_repo
+    )
     try:
-        await SendVerificationCode(code_service, email_sender, sms_sender).execute(body.identifier)
+        await sender.execute(body.identifier, ip=_client_ip(request))
     except InvalidIdentifierError:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Enter a valid email or phone number")
     except ResendTooSoonError:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Code already sent, try again shortly")
+    except RateLimitedError:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many verification requests, try again later",
+        )
     return {"status": "sent"}
 
 

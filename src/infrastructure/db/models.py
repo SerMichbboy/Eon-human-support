@@ -149,3 +149,14 @@ class MemoryEmbeddingModel(Base):
     period_end: Mapped[date] = mapped_column(Date, nullable=False)
 
     companion: Mapped[CompanionModel] = relationship(back_populates="memory_embeddings")
+
+
+class EmailSuppressionModel(Base):
+    """Addresses Resend told us bounced or complained (via webhook). Natural key
+    on the address itself — one row per suppressed address, no history kept."""
+
+    __tablename__ = "email_suppressions"
+
+    email: Mapped[str] = mapped_column(String(255), primary_key=True)
+    reason: Mapped[str] = mapped_column(String(32), nullable=False)  # bounced | complained
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)

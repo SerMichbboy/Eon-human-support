@@ -6,6 +6,7 @@ from src.main.settings import Settings
 
 _CODE_PREFIX = "verify_code:"
 _COOLDOWN_PREFIX = "verify_cooldown:"
+_RATE_PREFIX = "verify_rl:"
 
 
 class VerificationCodeService:
@@ -21,6 +22,17 @@ class VerificationCodeService:
 
     async def can_send(self, identifier: str) -> bool:
         return not await self._redis.exists(_COOLDOWN_PREFIX + identifier)
+
+    async def within_rate_limit(self, scope: str, key: str, limit: int, window: int) -> bool:
+        """Fixed-window counter: at most ``limit`` sends per ``window`` seconds
+        for a given (scope, key), e.g. per-identifier or per-IP. Returns False
+        once the limit is exceeded. Separate from ``can_send`` — that's a short
+        per-send cooldown; this caps the total over a longer abuse window."""
+        bucket = f"{_RATE_PREFIX}{scope}:{key}"
+        count = await self._redis.incr(bucket)
+        if count == 1:
+            await self._redis.expire(bucket, window)
+        return count <= limit
 
     async def issue(self, identifier: str) -> str:
         code = f"{secrets.randbelow(10_000):04d}"

@@ -36,6 +36,7 @@ def create_app() -> FastAPI:
     from src.presentation.api.onboarding import router as onboarding_router
     from src.presentation.api.profile import router as profile_router
     from src.presentation.api.voice import router as voice_router
+    from src.presentation.api.webhooks import router as webhooks_router
     from src.presentation.ws.chat import router as ws_router
 
     app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
@@ -44,6 +45,7 @@ def create_app() -> FastAPI:
     app.include_router(onboarding_router, prefix="/api/v1/onboarding", tags=["onboarding"])
     app.include_router(profile_router, prefix="/api/v1/profile", tags=["profile"])
     app.include_router(voice_router, prefix="/api/v1/voice", tags=["voice"])
+    app.include_router(webhooks_router, prefix="/webhooks", tags=["webhooks"])
     app.include_router(ws_router, prefix="/ws", tags=["chat"])
 
     return app

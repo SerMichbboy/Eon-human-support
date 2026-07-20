@@ -41,6 +41,9 @@ dependencies = [
     # HTTP client
     "httpx>=0.27",
 
+    # Email (Resend) + webhook signature verification
+    "svix>=1.0",
+
     # Utils
     "python-multipart>=0.0.9",
 ]
@@ -66,6 +69,10 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
 
 [build-system]
 requires = ["hatchling"]

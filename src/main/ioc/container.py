@@ -13,6 +13,7 @@ from src.domain.memory.repository import (
     IMessageRepository,
     IWeeklySummaryRepository,
 )
+from src.domain.notify.repository import IEmailSuppressionRepository
 from src.domain.profile.repository import IUserProfileRepository
 from src.domain.user.repository import IUserKeyRepository, IUserRepository
 from src.infrastructure.cache.redis_client import build_redis_client
@@ -27,9 +28,10 @@ from src.infrastructure.db.repositories.memory import (
     MessageRepository,
     WeeklySummaryRepository,
 )
+from src.infrastructure.db.repositories.notify import EmailSuppressionRepository
 from src.infrastructure.db.repositories.profile import UserProfileRepository
 from src.infrastructure.db.repositories.user import UserKeyRepository, UserRepository
-from src.infrastructure.notify.email_sender import EmailSender
+from src.infrastructure.notify.email_sender import EmailSender, ResendEmailSender, SmtpEmailSender
 from src.infrastructure.notify.sms_sender import SmsSender
 from src.infrastructure.stt.whisper import WhisperSTT
 from src.infrastructure.tts.vsegpt import VsegptTTS
@@ -86,7 +88,11 @@ class AppProvider(Provider):
 
     @provide(scope=Scope.APP)
     def email_sender(self, settings: Settings) -> EmailSender:
-        return EmailSender(settings)
+        # Resend when RESEND_API_KEY is configured, otherwise fall back to
+        # SMTP / the logging stub.
+        if settings.resend_api_key:
+            return ResendEmailSender(settings)
+        return SmtpEmailSender(settings)
 
     @provide(scope=Scope.APP)
     def sms_sender(self) -> SmsSender:
@@ -110,6 +116,9 @@ class AppProvider(Provider):
     )
     embedding_repo = provide(
         MemoryEmbeddingRepository, scope=Scope.REQUEST, provides=IMemoryEmbeddingRepository
+    )
+    email_suppression_repo = provide(
+        EmailSuppressionRepository, scope=Scope.REQUEST, provides=IEmailSuppressionRepository
     )
 
 
