@@ -11,8 +11,14 @@ export const apiClient = axios.create({
 apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   const token = await SecureStore.getItemAsync('access_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
-  const rawKey = await SecureStore.getItemAsync('raw_key');
-  if (rawKey) config.headers['X-User-Key'] = rawKey;
+  // /auth/register has no authenticated session yet — a raw_key left over in
+  // SecureStore from a previous account on this device must never be sent
+  // here, or the backend encrypts the new account's default companion name
+  // with someone else's key and it can never be decrypted again.
+  if (!config.url?.includes('/auth/register')) {
+    const rawKey = await SecureStore.getItemAsync('raw_key');
+    if (rawKey) config.headers['X-User-Key'] = rawKey;
+  }
   return config;
 });
 

@@ -31,7 +31,7 @@ class CompanionRepository(ICompanionRepository):
         name = _decrypt_name(model.name, self._raw_key, self._crypto)
         return Companion(id=model.id, user_id=model.user_id, name=name, created_at=model.created_at)
 
-    async def save(self, companion: Companion) -> None:
+    async def save(self, companion: Companion, encrypt: bool = True) -> None:
         model = await self._session.get(CompanionModel, companion.id)
         if model is None:
             model = CompanionModel()
@@ -40,7 +40,7 @@ class CompanionRepository(ICompanionRepository):
         model.user_id = companion.user_id
         model.name = (
             self._crypto.encrypt_field(companion.name, self._raw_key)
-            if self._raw_key
+            if encrypt and self._raw_key
             else companion.name
         )
         model.created_at = companion.created_at

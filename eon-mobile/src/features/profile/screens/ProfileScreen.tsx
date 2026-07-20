@@ -169,6 +169,9 @@ export function ProfileScreen({ navigation }: Props) {
       queryClient.invalidateQueries({ queryKey: ['companion'] });
       setEditingName(false);
     },
+    onError: () => {
+      Alert.alert('Не получилось сохранить', 'Попробуй ещё раз');
+    },
   });
 
   if (isLoading) {
@@ -193,6 +196,7 @@ export function ProfileScreen({ navigation }: Props) {
 
       <ScrollView
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + spacing.xl }]}
+        keyboardShouldPersistTaps="handled"
       >
         <View style={styles.section}>
           <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>Ассистент</Text>

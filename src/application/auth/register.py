@@ -59,7 +59,10 @@ class RegisterByEmail:
 
     async def _create_companion_and_profile(self, user: User) -> None:
         companion = Companion.create(user_id=user.id, name="Eon")
-        await self._companions.save(companion)
+        # No authenticated session exists yet at registration — never encrypt
+        # with whatever raw_key happens to be on the request, it can only be
+        # a leftover from an unrelated account and would be undecryptable.
+        await self._companions.save(companion, encrypt=False)
         profile = UserProfile.create(user_id=user.id)
         await self._profiles.save(profile)
 
@@ -95,7 +98,9 @@ class RegisterByPhone:
         await self._users.save(user)
 
         companion = Companion.create(user_id=user.id, name="Eon")
-        await self._companions.save(companion)
+        # See RegisterByEmail._create_companion_and_profile — no session yet,
+        # so any raw_key on this request can't belong to this new account.
+        await self._companions.save(companion, encrypt=False)
         profile = UserProfile.create(user_id=user.id)
         await self._profiles.save(profile)
 
