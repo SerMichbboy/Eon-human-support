@@ -15,6 +15,62 @@ Eon-human-support/
 
 ---
 
+## Quick Start
+
+**Prerequisites**: Docker + Docker Compose, Node.js LTS, and a physical phone with the Expo Go app installed (recommended over a simulator — mic recording, real push notifications, and anything Skia-dependent don't fully work on one; see the Voice Recording and Reminders notes below).
+
+### 1. Environment
+
+```bash
+cp .env.template .env
+```
+
+Fill in:
+- `APP_SECRET_KEY` — any random string (`openssl rand -hex 32`).
+- `MASTER_ENCRYPTION_KEY` — random 32 bytes, base64-encoded (`openssl rand -base64 32`).
+- `OPENAI_API_KEY` / `VSEGPT_BASE_URL` — a real vsegpt.ru key. **Optional for local dev** — see the stub-mode note below.
+
+`DATABASE_URL`/`DATABASE_URL_SYNC`/`REDIS_URL` in `.env.template` already point at the ports docker-compose exposes (see step 2) and don't need changing for local dev.
+
+### 2. Backend
+
+```bash
+docker compose up -d           # first time: builds images, starts postgres/redis, runs migrations, starts api/worker/scheduler
+docker compose up -d --build api   # after changing Python code
+docker logs -f eon-api             # tail logs
+docker compose ps                  # check everything's healthy
+```
+
+API is at `http://localhost:8000`. Postgres is exposed on host port **5433**, not 5432 (`docker-compose.yml`) — deliberately offset in case you already have a local Postgres running; nothing here needs to know that port, only you if you want to `psql` in from the host directly.
+
+### 3. Frontend
+
+```bash
+cd eon-mobile
+npm install
+```
+
+Create `eon-mobile/.env` (gitignored, not in the repo):
+```
+EXPO_PUBLIC_API_URL=http://localhost:8000
+```
+Use your machine's LAN IP instead of `localhost` if testing on a physical device — see Frontend Patterns → API Client below.
+
+```bash
+npx expo start --clear
+```
+Scan the QR code with Expo Go.
+
+### No vsegpt key yet? Local dev still works
+
+Without a real `OPENAI_API_KEY`, `VsegptClient` (`src/infrastructure/ai/client.py`) runs in stub mode (`self._stub = self._api_key in ("placeholder", "", None)`): chat replies cycle through a small set of canned Russian responses, embeddings/fact-extraction return deterministic placeholder values, and `extract_reminder` just always returns nothing (reminders silently never get created, but nothing errors) — all instead of calling out to vsegpt. That's enough to exercise the entire app end-to-end — register, verify, onboarding, chat — without spending anything or needing a key at all. `WhisperSTT`/`VsegptTTS` (voice transcribe/synthesize) have no equivalent stub path, though — those two will actually error without a real key.
+
+### First run
+
+Register with an email or phone (single `identifier` field, see Auth notes below) → a 4-digit verification code gets sent. SMS is a stub that just logs the code (`docker logs eon-api`, search for it) — no real SMS provider is wired up. Email goes out via Resend if `RESEND_API_KEY` is set, otherwise SMTP (or its own stub, also just logs, if SMTP isn't configured either). Confirm via the code, then straight into onboarding.
+
+---
+
 ## Backend Patterns
 
 ### Dependency Injection — Dishka
@@ -432,24 +488,6 @@ Current pinned versions (Expo SDK 54 / RN 0.81.5 / React 19.1.0):
 - **Avoid `@shopify/react-native-skia`** unless a dev-client build (`npx expo run:ios`/`run:android`) is already part of the plan — it's a native module not bundled in plain Expo Go, and was tried for `RecordingOverlay`'s orb and reverted after it crashed the app on launch for exactly that reason (see Voice Recording notes below). Every other native dependency in this list works via plain `npx expo install` + `expo start`; Skia is the one exception.
 
 After changing packages, always restart with `npx expo start --clear`.
-
----
-
-## Running Services
-
-```bash
-# Backend — first time
-docker compose up -d
-
-# Backend — rebuild after Python code changes
-docker compose up -d --build api
-
-# Backend logs
-docker logs -f eon-api
-
-# Frontend
-cd eon-mobile && npx expo start --clear
-```
 
 ---
 
