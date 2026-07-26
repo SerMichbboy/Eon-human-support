@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Animated, {
   FadeIn,
   FadeOut,
@@ -179,12 +179,14 @@ export function ChatInput({ onSend, disabled, onRecordingActiveChange, onStartCo
             editable={!disabled && !isRecording}
           />
 
-          <VoiceButton
-            state={recorder.state}
-            onPressIn={recorder.start}
-            onPressOut={handleVoiceRelease}
-            onLock={recorder.lock}
-          />
+          {Platform.OS !== 'web' && (
+            <VoiceButton
+              state={recorder.state}
+              onPressIn={recorder.start}
+              onPressOut={handleVoiceRelease}
+              onLock={recorder.lock}
+            />
+          )}
 
           <TouchableOpacity
             style={[styles.roundBtn, styles.sendRoundBtn, { backgroundColor: text.trim() && !disabled ? colors.accent : colors.accentMuted }]}

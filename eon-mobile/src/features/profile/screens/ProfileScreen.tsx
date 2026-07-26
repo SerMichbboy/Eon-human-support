@@ -2,12 +2,13 @@ import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppStackParams } from '@/core/navigation/AppNavigator';
 import { companionApi } from '@/features/companion/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '@/shared/store/auth';
+import { platformAlert } from '@/shared/utils/platformAlert';
 import { useColors, radius, spacing, typography, NAV_DELAY } from '@/shared/theme';
 import { GlassCard, GlassPanel } from '@/shared/components/Glass';
 import { IconButton } from '@/shared/components/IconButton';
@@ -170,7 +171,7 @@ export function ProfileScreen({ navigation }: Props) {
       setEditingName(false);
     },
     onError: () => {
-      Alert.alert('Не получилось сохранить', 'Попробуй ещё раз');
+      platformAlert('Не получилось сохранить', 'Попробуй ещё раз');
     },
   });
 
@@ -342,7 +343,7 @@ export function ProfileScreen({ navigation }: Props) {
         <Pressable
           style={styles.logoutBtn}
           onPress={() =>
-            Alert.alert('Выйти из аккаунта?', 'Вернуться можно в любое время.', [
+            platformAlert('Выйти из аккаунта?', 'Вернуться можно в любое время.', [
               { text: 'Отмена', style: 'cancel' },
               { text: 'Выйти', style: 'destructive', onPress: logout },
             ])

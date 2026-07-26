@@ -61,3 +61,10 @@ class Settings(BaseSettings):
     verification_identifier_window_seconds: int = 900  # 15 minutes
     verification_max_per_ip: int = 10
     verification_ip_window_seconds: int = 3600  # 1 hour
+
+    # Only the mobile app (native) called this API before the web target
+    # existed — native HTTP clients don't enforce CORS, so this was never
+    # needed until a browser started calling it directly. Comma-separated;
+    # defaults cover the Expo web dev server only. Add the real deployed web
+    # origin here before shipping web to production.
+    cors_allowed_origins: str = "http://localhost:8081,http://localhost:19006"

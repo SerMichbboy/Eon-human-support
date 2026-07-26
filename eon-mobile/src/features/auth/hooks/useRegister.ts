@@ -1,10 +1,10 @@
 import { useMutation } from '@tanstack/react-query';
-import { Alert } from 'react-native';
 import { generateE2EKeyPair } from '@/shared/crypto/e2e';
+import { platformAlert } from '@/shared/utils/platformAlert';
 import { authApi } from '../api';
 
 function showPasswordWarning(onConfirm: () => void, onCancel: () => void) {
-  Alert.alert(
+  platformAlert(
     '🔐 Запомни пароль',
     'Твои данные зашифрованы паролем. Если забудешь его — восстановить данные будет невозможно.\n\nЗапиши пароль в надёжном месте — на бумаге или в менеджере паролей.',
     [

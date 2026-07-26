@@ -229,7 +229,7 @@ export function ChatScreen({ navigation }: Props) {
             onSend={send}
             disabled={!isConnected}
             onRecordingActiveChange={setIsRecordingActive}
-            onStartConversation={() => setConversationActive(true)}
+            onStartConversation={Platform.OS !== 'web' ? () => setConversationActive(true) : undefined}
           />
         </View>
       </KeyboardAvoidingView>

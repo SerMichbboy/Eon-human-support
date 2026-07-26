@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from dishka.integrations.fastapi import setup_dishka
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from src.main.ioc.container import create_container
 from src.infrastructure.tasks.broker import task_broker
@@ -26,6 +27,13 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="Eon", lifespan=lifespan)
     app.state.settings = settings
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[o.strip() for o in settings.cors_allowed_origins.split(",") if o.strip()],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     container = create_container(settings)
     setup_dishka(container, app)

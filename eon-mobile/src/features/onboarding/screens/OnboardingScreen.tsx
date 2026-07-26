@@ -313,17 +313,19 @@ export function OnboardingScreen({ navigation }: Props) {
                 editable={!isTranscribing}
                 returnKeyType="default"
               />
-              {isTranscribing ? (
-                <View style={styles.voiceBtnSlot}>
-                  <ActivityIndicator color={colors.accent} />
-                </View>
-              ) : (
-                <VoiceButton
-                  state={recorder.state}
-                  onPressIn={recorder.start}
-                  onPressOut={handleStopRecording}
-                  onLock={recorder.lock}
-                />
+              {Platform.OS !== 'web' && (
+                isTranscribing ? (
+                  <View style={styles.voiceBtnSlot}>
+                    <ActivityIndicator color={colors.accent} />
+                  </View>
+                ) : (
+                  <VoiceButton
+                    state={recorder.state}
+                    onPressIn={recorder.start}
+                    onPressOut={handleStopRecording}
+                    onLock={recorder.lock}
+                  />
+                )
               )}
             </View>
             {/* Hidden, not just disabled, while actively recording — a
