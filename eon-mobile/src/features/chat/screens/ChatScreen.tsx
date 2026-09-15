@@ -146,7 +146,7 @@ export function ChatScreen({ navigation }: Props) {
         colors={chatBgColors}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
       />
 
       {/* Custom header — full JS. Swipe-to-navigate is on the whole screen (see

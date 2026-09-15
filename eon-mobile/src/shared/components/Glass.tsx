@@ -56,7 +56,7 @@ function GlassRim({ borderRadius = 0 }: { borderRadius?: number }) {
   }));
 
   return (
-    <Animated.View style={[StyleSheet.absoluteFillObject, breatheStyle]} pointerEvents="none">
+    <Animated.View style={[StyleSheet.absoluteFill, breatheStyle]} pointerEvents="none">
       <Svg width="100%" height="100%">
         <Defs>
           <SvgLinearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
@@ -138,10 +138,10 @@ export function GlassCard({ children, style, level = 'regular', borderRadius = r
         <BlurView
           intensity={blurIntensity}
           tint={isDark ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
         />
         <Animated.View
-          style={[StyleSheet.absoluteFillObject, { borderRadius, borderWidth: 1 }, overlayStyle]}
+          style={[StyleSheet.absoluteFill, { borderRadius, borderWidth: 1 }, overlayStyle]}
         />
         {isDark && <GlassRim borderRadius={borderRadius} />}
         {children}
@@ -167,9 +167,9 @@ export function GlassPanel({ children, style, level = 'thick', ...rest }: GlassP
       <BlurView
         intensity={blurIntensity}
         tint={isDark ? 'dark' : 'light'}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
       />
-      <Animated.View style={[StyleSheet.absoluteFillObject, overlayStyle]} />
+      <Animated.View style={[StyleSheet.absoluteFill, overlayStyle]} />
       {isDark && <GlassRim />}
       <Animated.View style={[styles.panelBorder, bottomBorderStyle]} />
       {children}

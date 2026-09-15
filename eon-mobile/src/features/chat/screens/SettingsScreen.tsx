@@ -165,7 +165,7 @@ function PresetSwatch({
           colors={preset.colors}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
         />
         {selected && (
           <View style={styles.miniChat}>
@@ -342,7 +342,13 @@ export function SettingsScreen({ navigation }: Props) {
     mutationFn: (styleId: string) =>
       profileApi.update({
         step: 'companion_preferences',
-        companion_preferences: { ...profile?.companion_preferences, communication_style: styleId },
+        companion_preferences: {
+          tone: '',
+          directiveness: '',
+          forbidden_topics: [] as string[],
+          ...profile?.companion_preferences,
+          communication_style: styleId,
+        },
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['profile'] }),
   });
@@ -502,7 +508,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   miniChat: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     padding: 8,
     justifyContent: 'flex-end',
     gap: 4,

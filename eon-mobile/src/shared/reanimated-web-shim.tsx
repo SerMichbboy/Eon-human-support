@@ -61,7 +61,7 @@ export function withTiming(toValue: number, config?: { duration?: number }, call
   const duration = config?.duration ?? 300;
   return {
     __webAnim: true,
-    run: (from, onUpdate, onDone) =>
+    run: (from: number, onUpdate: (v: number) => void, onDone: () => void) =>
       tween(toValue, duration, onUpdate, () => {
         onDone();
         callback?.(true);
@@ -76,7 +76,7 @@ export function withSpring(toValue: number, _config?: unknown, callback?: (finis
 export function withDelay(delayMs: number, animation: number): number {
   return {
     __webAnim: true,
-    run: (from, onUpdate, onDone) => {
+    run: (from: number, onUpdate: (v: number) => void, onDone: () => void) => {
       const timer = setTimeout(() => {
         cancel = isDescriptor(animation) ? animation.run(from, onUpdate, onDone) : (onUpdate(animation), onDone(), () => {});
       }, delayMs);
@@ -89,7 +89,7 @@ export function withDelay(delayMs: number, animation: number): number {
 export function withSequence(...animations: number[]): number {
   return {
     __webAnim: true,
-    run: (from, onUpdate, onDone) => {
+    run: (from: number, onUpdate: (v: number) => void, onDone: () => void) => {
       let cancelled = false;
       let cancelCurrent: Cancel = () => {};
       let idx = 0;
@@ -119,7 +119,7 @@ export function withSequence(...animations: number[]): number {
 export function withRepeat(animation: number, numberOfReps = 2, reverse = false): number {
   return {
     __webAnim: true,
-    run: (from, onUpdate, onDone) => {
+    run: (from: number, onUpdate: (v: number) => void, onDone: () => void) => {
       let cancelled = false;
       let cancelCurrent: Cancel = () => {};
       let iteration = 0;
