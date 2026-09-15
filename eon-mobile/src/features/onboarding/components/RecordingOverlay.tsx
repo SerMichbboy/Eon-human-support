@@ -117,11 +117,11 @@ export function RecordingOverlay({ seconds, onSave, onCancel }: Props) {
     <Animated.View
       entering={overlayFadeIn}
       exiting={overlayFadeOut}
-      style={StyleSheet.absoluteFillObject}
+      style={StyleSheet.absoluteFill}
     >
       <Pressable style={styles.fill} onPress={onSave}>
-        <BlurView intensity={40} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
-        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.bg, opacity: isDark ? 0.65 : 0.5 }]} />
+        <BlurView intensity={40} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.bg, opacity: isDark ? 0.65 : 0.5 }]} />
 
         <View style={styles.center}>
           <Text style={[styles.timer, { color: colors.textPrimary }]}>{formatTime(seconds)}</Text>

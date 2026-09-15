@@ -13,7 +13,7 @@ async function transcribe(uri: string): Promise<string> {
   return data.text;
 }
 
-/** Returns a local file:// uri playable by `expo-av`'s `Audio.Sound` — the
+/** Returns a local file:// uri playable by `expo-audio`'s `AudioPlayer` — the
  * response is raw `audio/mpeg` bytes, written straight to a cache file via
  * the new `expo-file-system` `File` API (no base64 round-trip needed, unlike
  * the legacy `writeAsStringAsync` API this replaces). */

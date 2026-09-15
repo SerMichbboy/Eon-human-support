@@ -3,9 +3,15 @@ import * as SecureStore from 'expo-secure-store';
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000';
 
+// Without a timeout, a misconfigured/unreachable BASE_URL (e.g. `localhost`
+// baked into a build meant for a physical device) hangs every request
+// indefinitely instead of failing with a clear error — same reasoning as
+// `refreshTokens`'s own `timeout: 8000` below, just longer since this client
+// also carries slower calls (voice transcribe/synthesize).
 export const apiClient = axios.create({
   baseURL: `${BASE_URL}/api/v1`,
   headers: { 'Content-Type': 'application/json' },
+  timeout: 20000,
 });
 
 apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {

@@ -2,9 +2,16 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
+    "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      // Only hoisted under node_modules/expo/node_modules — not at the top
+      // level or under expo-audio's own node_modules — so TS's "bundler"
+      // moduleResolution can't find it via a normal directory walk from
+      // expo-audio's location, even though Metro's real resolver (verified
+      // via `npx expo export --platform ios`, which bundles cleanly) does.
+      "expo-modules-core": ["node_modules/expo/node_modules/expo-modules-core"]
     }
   },
   "include": ["src", "*.ts"]

@@ -69,7 +69,7 @@ export const TouchRipple = forwardRef<TouchRippleHandle>((_, ref) => {
   }));
 
   return (
-    <View ref={containerRef} pointerEvents="none" style={StyleSheet.absoluteFillObject}>
+    <View ref={containerRef} pointerEvents="none" style={StyleSheet.absoluteFill}>
       <Animated.View style={[styles.ripple, { backgroundColor: colors.textPrimary }, animatedStyle]} />
     </View>
   );

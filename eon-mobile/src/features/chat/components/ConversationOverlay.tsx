@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Audio } from 'expo-av';
+import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 import { BlurView } from 'expo-blur';
 import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -111,7 +111,7 @@ export function ConversationOverlay({ messages, send, onClose }: Props) {
   const [phase, setPhase] = useState<Phase>('listening');
   const [seconds, setSeconds] = useState(0);
   const pendingBaselineRef = useRef<number | null>(null);
-  const soundRef = useRef<Audio.Sound | null>(null);
+  const soundRef = useRef<AudioPlayer | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const closingRef = useRef(false);
 
@@ -120,7 +120,7 @@ export function ConversationOverlay({ messages, send, onClose }: Props) {
     return () => {
       closingRef.current = true;
       recorder.reset();
-      soundRef.current?.unloadAsync().catch(() => {});
+      soundRef.current?.remove();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -156,22 +156,21 @@ export function ConversationOverlay({ messages, send, onClose }: Props) {
     try {
       const uri = await voiceApi.synthesize(text);
       if (closingRef.current) return;
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
-      const { sound } = await Audio.Sound.createAsync(
-        { uri },
-        { shouldPlay: true },
-        (status) => {
-          if (status.isLoaded && status.didJustFinish) {
-            sound.unloadAsync().catch(() => {});
-            soundRef.current = null;
-            if (!closingRef.current) {
-              setPhase('listening');
-              recorder.start();
-            }
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+      const player = createAudioPlayer({ uri });
+      const subscription = player.addListener('playbackStatusUpdate', (status) => {
+        if (status.didJustFinish) {
+          subscription.remove();
+          player.remove();
+          soundRef.current = null;
+          if (!closingRef.current) {
+            setPhase('listening');
+            recorder.start();
           }
         }
-      );
-      soundRef.current = sound;
+      });
+      player.play();
+      soundRef.current = player;
     } catch {
       if (!closingRef.current) {
         setPhase('listening');
@@ -202,7 +201,7 @@ export function ConversationOverlay({ messages, send, onClose }: Props) {
 
   const handleInterrupt = async () => {
     if (!soundRef.current) return;
-    await soundRef.current.unloadAsync().catch(() => {});
+    soundRef.current.remove();
     soundRef.current = null;
     setPhase('listening');
     recorder.start();
@@ -216,17 +215,17 @@ export function ConversationOverlay({ messages, send, onClose }: Props) {
   const handleClose = async () => {
     closingRef.current = true;
     recorder.reset();
-    await soundRef.current?.unloadAsync().catch(() => {});
+    soundRef.current?.remove();
     onClose();
   };
 
   const formatTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
   return (
-    <Animated.View entering={overlayFadeIn} exiting={overlayFadeOut} style={StyleSheet.absoluteFillObject}>
+    <Animated.View entering={overlayFadeIn} exiting={overlayFadeOut} style={StyleSheet.absoluteFill}>
       <Pressable style={styles.fill} onPress={handleTap}>
-        <BlurView intensity={40} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
-        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.bg, opacity: isDark ? 0.65 : 0.5 }]} />
+        <BlurView intensity={40} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.bg, opacity: isDark ? 0.65 : 0.5 }]} />
 
         <View style={styles.center}>
           {phase === 'listening' && (
